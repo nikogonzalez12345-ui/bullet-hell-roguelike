@@ -8,7 +8,7 @@ function spawnEnemyBullet(bullets, x, y, angle, opts = {}) {
     vx: Math.cos(angle) * speed,
     vy: Math.sin(angle) * speed,
     radius: opts.radius || ENEMY_BULLET.radius,
-    damage: opts.damage || ENEMY_BULLET.damage,
+    damage: (opts.damage || ENEMY_BULLET.damage) * INTENSITY.damage,
     owner: "enemy",
     color: opts.color || COLORS.enemyBullet,
     life: opts.life || 6,

@@ -9,7 +9,7 @@ const VIEW_H = 540;
 // Gameplay still simulates on a flat 2D plane in "sim units" (the old pixel
 // scale, so all speed/range tuning carries over). WORLD_SCALE converts sim
 // units to Three.js world units: sim (x, y) -> world (x, z).
-const ARENA_RADIUS = 520;
+const ARENA_RADIUS = 1500;
 const WORLD_SCALE = 0.05;
 
 // Internal render resolution — the PS1 look depends on this being tiny.
@@ -32,8 +32,10 @@ const PLAYER = {
   rollCooldown: 1.1,     // seconds
   rollIframes: 0.22,     // seconds of invulnerability after roll starts
   hitIframes: 0.5,       // brief invulnerability after taking damage
-  magnetRadius: 0,
+  pickupRadius: 80,      // XP gems start flying to you inside this range
   regenPerSec: 0,
+  backpackSlots: 6,
+  maxBackpackSlots: 30,
 };
 
 const ENEMY_BULLET = {
@@ -42,25 +44,69 @@ const ENEMY_BULLET = {
   damage: 12,
 };
 
-const WAVE = {
-  baseEnemyCount: 6,
-  enemyCountGrowth: 2.1,   // additive per wave
-  baseSpawnInterval: 0.9,  // seconds between spawns within a wave
-  spawnIntervalFloor: 0.28,
-  bossEvery: 5,
+// The run's internal clock drives difficulty instead of waves.
+const DIRECTOR = {
+  baseSpawnRate: 0.55,     // enemies/sec at 0:00
+  spawnRateGrowth: 0.012,  // + enemies/sec per second survived
+  baseCap: 25,             // max enemies alive at 0:00…
+  capGrowth: 1 / 6,        // …+1 per 6s
+  maxCap: 110,
+  bossEvery: 180,          // seconds
+  swarmEvery: 60,
+  firstSwarm: 40,
+  spawnMin: 480,           // spawn ring around the player (sim units)
+  spawnMax: 680,
+  leashDistance: 1100,     // non-boss enemies further than this get recycled closer
+};
+
+const XP = {
+  // XP needed to go from `level` to `level + 1`.
+  toNext: (level) => Math.floor(6 + level * 4 + Math.pow(level, 1.6)),
+  gemTiers: [
+    { min: 10, color: "#c05aff", size: 1.6 },
+    { min: 3, color: "#4a9aff", size: 1.25 },
+    { min: 0, color: "#8fe04a", size: 1 },
+  ],
+};
+
+const RARITIES = [
+  { id: "common",    name: "Common",    color: "#c8c0b0", weight: 60, affixes: 0, mult: 1.0 },
+  { id: "uncommon",  name: "Uncommon",  color: "#6fce4a", weight: 25, affixes: 1, mult: 1.15 },
+  { id: "rare",      name: "Rare",      color: "#4a9aff", weight: 10, affixes: 2, mult: 1.35 },
+  { id: "epic",      name: "Epic",      color: "#c05aff", weight: 4,  affixes: 3, mult: 1.6 },
+  { id: "legendary", name: "Legendary", color: "#ff8a1e", weight: 1,  affixes: 4, mult: 2.0 },
+];
+
+const LOOT = {
+  itemDropChance: 0.045,
+  potionDropChance: 0.03,
+  bossItemDrops: 3,
+  pickupRange: 36,
 };
 
 const COLORS = {
-  player: "#7dd3ff",
-  playerDash: "#ffffff",
-  playerBullet: "#a3f7ff",
   enemyGrunt: "#ff6b6b",
   enemyShooter: "#ff9b3b",
   enemySniper: "#c46bff",
   enemyOrbiter: "#ff6bd0",
   enemyBoss: "#ff2b4d",
   enemyBullet: "#ffd23b",
-  xpGem: "#7dffb3",
+};
+
+// Pixel UI palette, pulled from the sunset island: ink outlines, maroon
+// panels, cream text, sunset reds/oranges, grass greens.
+const UI = {
+  ink: "#1a0a10",
+  panel: "#2a1420",
+  panelLight: "#4a2430",
+  cream: "#ffe9c0",
+  muted: "#b89a8a",
+  gold: "#ffcf5c",
+  font: "'Press Start 2P', monospace",
+  hp:     { fill: "#d83a22", light: "#ff8a4a", dark: "#7a1418" },
+  energy: { fill: "#f0a81e", light: "#ffe07a", dark: "#9a5a10" },
+  xp:     { fill: "#6fae3a", light: "#c8e67a", dark: "#2e5220" },
+  boss:   { fill: "#b82a4a", light: "#ff6a8a", dark: "#5a0a20" },
 };
 
 // Weapon archetypes the player can unlock through upgrades. Each fires

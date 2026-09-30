@@ -1,395 +1,289 @@
-// Top-level orchestrator: owns state, entities and the update loop, hands
-// rendering to Renderer3D, and draws the 2D overlay (crosshair, radar, boss
-// bar, banners) on top.
+// Top-level orchestrator: state machine, the simulation step, XP/levels,
+// loot, and hand-off to Renderer3D (3D) + Hud (overlay) + GameUI (DOM).
 
-const STATE = { START: "start", PLAYING: "playing", PAUSED: "paused", UPGRADE: "upgrade", GAMEOVER: "gameover" };
+const STATE = {
+  MENU: "menu", PLAYING: "playing", PAUSED: "paused",
+  LEVELUP: "levelup", INVENTORY: "inventory", GAMEOVER: "gameover",
+};
 
-const RADAR = { x: CANVAS_W - 82, y: VIEW_TOP + 82, r: 64, range: 560 };
+const newSeed = () => Math.floor(Math.random() * 1e6);
 
 class Game {
   constructor(renderer, overlayCtx) {
     this.renderer = renderer;
-    this.ctx = overlayCtx;
-    this.state = STATE.START;
+    this.hud = new Hud(overlayCtx);
+    this.ui = new GameUI(this);
     this.lockPointer = () => {};
     this.unlockPointer = () => {};
-    this.reset();
-    this.cacheDom();
-    this.bindUi();
+
+    this.seed = newSeed();
+    this.renderer.newWorld(this.seed);
+    this.resetRun();
+    this.state = STATE.MENU;
+    this.ui.show("mainMenu");
   }
 
-  cacheDom() {
-    const $ = (id) => document.getElementById(id);
-    this.dom = {
-      hpBar: $("hpBar"),
-      dashBar: $("dashBar"),
-      waveLabel: $("waveLabel"),
-      scoreLabel: $("scoreLabel"),
-      weaponRow: $("weaponRow"),
-      startScreen: $("startScreen"),
-      pauseScreen: $("pauseScreen"),
-      upgradeScreen: $("upgradeScreen"),
-      upgradeCards: $("upgradeCards"),
-      gameOverScreen: $("gameOverScreen"),
-      finalStats: $("finalStats"),
-      startBtn: $("startBtn"),
-      restartBtn: $("restartBtn"),
-    };
-  }
-
-  bindUi() {
-    this.dom.startBtn.addEventListener("click", () => this.startRun());
-    this.dom.restartBtn.addEventListener("click", () => this.startRun());
-    this.dom.pauseScreen.addEventListener("click", () => this.resume());
-  }
-
-  reset() {
+  resetRun() {
     this.player = new Player();
     this.enemies = [];
     this.bullets = [];
     this.particles = [];
-    this.spawner = new Spawner(this.player);
-    this.wave = 1;
+    this.gems = [];
+    this.loot = [];
+    this.director = new Director(this);
     this.score = 0;
+    this.pendingLevels = 0;
     this.seenBossIds = new Set();
+    this.activeBoss = null;
     this.bannerText = null;
     this.bannerTimer = 0;
-    this.activeBoss = null;
+    this.bannerDuration = 1;
+    this.bannerColor = UI.gold;
     this.damageFlash = 0;
+    this.fullWarnCooldown = 0;
     this.yaw = -Math.PI / 2; // facing the sunset
-    this.pitch = 0.32;
   }
 
-  startRun() {
-    this.reset();
+  // ---- Screens / states ------------------------------------------------------
+
+  newGame() {
+    this.seed = newSeed();
+    this.renderer.newWorld(this.seed);
+    this.resetRun();
     this.state = STATE.PLAYING;
-    this.spawner.startWave(this.wave);
-    this.dom.startScreen.classList.add("hidden");
-    this.dom.upgradeScreen.classList.add("hidden");
-    this.dom.gameOverScreen.classList.add("hidden");
-    this.dom.pauseScreen.classList.add("hidden");
+    this.ui.show(null);
+    this.showBanner("SURVIVE", 2, UI.gold);
     this.lockPointer();
+  }
+
+  toMainMenu() {
+    this.resetRun();
+    this.state = STATE.MENU;
+    this.unlockPointer();
+    this.ui.show("mainMenu");
   }
 
   pause() {
     if (this.state !== STATE.PLAYING) return;
     this.state = STATE.PAUSED;
-    this.dom.pauseScreen.classList.remove("hidden");
+    this.unlockPointer();
+    this.ui.showPause(this);
   }
 
   resume() {
     if (this.state !== STATE.PAUSED) return;
     this.state = STATE.PLAYING;
-    this.dom.pauseScreen.classList.add("hidden");
+    this.ui.show(null);
     this.lockPointer();
   }
 
-  look(dx, dy) {
+  openInventory() {
     if (this.state !== STATE.PLAYING) return;
-    this.yaw += dx * 0.0026;
-    this.pitch = clamp(this.pitch + dy * 0.002, -0.15, 0.95);
+    this.state = STATE.INVENTORY;
+    this.unlockPointer();
+    this.ui.renderInventory();
+    this.ui.show("inventory");
   }
 
-  // -------------------------------------------------------------------------
-  // Update
-  // -------------------------------------------------------------------------
+  // `relock` is false when closed with Esc — browsers won't grant pointer
+  // lock from an Esc press, so we fall back to the click-to-resume screen.
+  closeInventory(relock) {
+    if (this.state !== STATE.INVENTORY) return;
+    if (relock) {
+      this.state = STATE.PLAYING;
+      this.ui.show(null);
+      this.lockPointer();
+    } else {
+      this.state = STATE.PLAYING;
+      this.pause();
+    }
+  }
+
+  look(dx) {
+    if (this.state === STATE.PLAYING) this.yaw += dx * 0.0026;
+  }
+
+  usePotion() {
+    if (this.state !== STATE.PLAYING) return;
+    if (this.player.drinkPotion()) {
+      this.hud.toast("DRANK HEALTH POTION", "#ff8a8a");
+      this.spawnParticles(this.player.x, this.player.y, "#ff6a6a", 12);
+    } else if (this.player.potionCount === 0) {
+      this.hud.toast("NO POTIONS", UI.muted);
+    }
+  }
+
+  showBanner(text, duration, color) {
+    this.bannerText = text;
+    this.bannerTimer = this.bannerDuration = duration;
+    this.bannerColor = color;
+  }
+
+  // ---- Simulation --------------------------------------------------------------
 
   update(dt, input) {
     if (this.damageFlash > 0) this.damageFlash -= dt;
     if (this.state !== STATE.PLAYING) return;
+    if (this.bannerTimer > 0) this.bannerTimer -= dt;
+    if (this.fullWarnCooldown > 0) this.fullWarnCooldown -= dt;
 
-    this.player.update(dt, { ...input, yaw: this.yaw });
-    if (input.mouseDown) this.player.tryShoot(this.bullets, this.enemies);
+    const p = this.player;
+    p.update(dt, { ...input, yaw: this.yaw });
+    if (input.mouseDown) p.tryShoot(this.bullets, this.enemies);
 
-    this.spawner.update(dt, this.enemies, this.wave);
-
-    for (const e of this.enemies) e.update(dt, this.player, this.bullets);
+    this.director.update(dt);
+    for (const e of this.enemies) e.update(dt, p, this.bullets);
     for (const b of this.bullets) b.update(dt);
-    for (const p of this.particles) p.update(dt);
+    for (const pt of this.particles) pt.update(dt);
+    for (const gem of this.gems) gem.update(dt, p);
 
     this.handleCollisions();
+    this.collectPickups();
     this.updateBossTracking();
 
     this.enemies = this.enemies.filter((e) => e.alive);
     this.bullets = this.bullets.filter((b) => !b.dead);
-    this.particles = this.particles.filter((p) => !p.dead);
+    this.particles = this.particles.filter((pt) => !pt.dead);
 
-    if (this.bannerTimer > 0) this.bannerTimer -= dt;
+    if (!p.alive) return this.onGameOver();
+    if (this.pendingLevels > 0) this.openLevelUp();
+  }
 
-    if (!this.player.alive) {
-      this.onGameOver();
-      return;
+  handleCollisions() {
+    const p = this.player;
+    for (const b of this.bullets) {
+      if (b.owner !== "player" || b.dead) continue;
+      for (const e of this.enemies) {
+        if (!e.alive || !circleHit(b.x, b.y, b.radius, e.x, e.y, e.radius)) continue;
+        const killed = e.takeDamage(b.damage);
+        this.spawnParticles(b.x, b.y, e.color, 3);
+        if (killed) this.onEnemyKilled(e);
+        if (b.pierce > 0) { b.pierce -= 1; } else { b.dead = true; break; }
+      }
     }
 
-    const waveDone = this.spawner.pendingCount === 0 && this.enemies.length === 0 && this.spawner.waveActive;
-    if (waveDone) {
-      this.spawner.waveActive = false;
-      this.onWaveCleared();
+    for (const b of this.bullets) {
+      if (b.owner !== "enemy" || b.dead) continue;
+      if (!circleHit(b.x, b.y, b.radius, p.x, p.y, p.radius)) continue;
+      if (p.takeDamage(b.damage)) this.onPlayerHit();
+      b.dead = true; // a roll's i-frames still eat the bullet harmlessly
     }
 
-    this.syncHud();
+    for (const e of this.enemies) {
+      if (e.alive && circleHit(p.x, p.y, p.radius, e.x, e.y, e.radius)) {
+        if (p.takeDamage(e.contactDamage * INTENSITY.damage)) this.onPlayerHit();
+      }
+    }
+  }
+
+  collectPickups() {
+    const p = this.player;
+    for (const gem of this.gems) if (gem.collected) this.addXp(gem.value);
+    this.gems = this.gems.filter((g) => !g.collected);
+
+    for (const l of this.loot) {
+      if (dist(l.x, l.y, p.x, p.y) > LOOT.pickupRange) continue;
+      if (p.addToBackpack(l.item)) {
+        l.taken = true;
+        this.hud.toast(`+ ${l.item.name.toUpperCase()}`, itemColor(l.item));
+      } else if (this.fullWarnCooldown <= 0) {
+        this.fullWarnCooldown = 2.5;
+        this.hud.toast("BACKPACK FULL - PRESS TAB", UI.hp.light);
+      }
+    }
+    this.loot = this.loot.filter((l) => !l.taken);
+  }
+
+  addXp(value) {
+    const p = this.player;
+    p.xp += value;
+    while (p.xp >= XP.toNext(p.level)) {
+      p.xp -= XP.toNext(p.level);
+      p.level += 1;
+      this.pendingLevels += 1;
+    }
+  }
+
+  openLevelUp() {
+    this.state = STATE.LEVELUP;
+    this.unlockPointer();
+    const level = this.player.level - this.pendingLevels + 1;
+    this.ui.showLevelUp(rollUpgrades(this.player, 3), level, this.pendingLevels);
+  }
+
+  chooseUpgrade(u) {
+    u.apply(this.player);
+    this.pendingLevels -= 1;
+    if (this.pendingLevels > 0) {
+      this.openLevelUp();
+    } else {
+      this.state = STATE.PLAYING;
+      this.ui.show(null);
+      this.lockPointer();
+    }
   }
 
   updateBossTracking() {
     const boss = this.enemies.find((e) => e.isBoss && e.alive);
     if (boss && !this.seenBossIds.has(boss.id)) {
       this.seenBossIds.add(boss.id);
-      this.bannerText = `WAVE ${this.wave} — ${boss.name.toUpperCase()}`;
-      this.bannerTimer = 3;
+      this.showBanner(`${boss.name.toUpperCase()} APPEARS`, 3, "#ff6a8a");
     }
     this.activeBoss = boss || null;
   }
 
-  handleCollisions() {
-    for (const b of this.bullets) {
-      if (b.owner !== "player" || b.dead) continue;
-      for (const e of this.enemies) {
-        if (!e.alive) continue;
-        if (circleHit(b.x, b.y, b.radius, e.x, e.y, e.radius)) {
-          const killed = e.takeDamage(b.damage);
-          this.spawnHitParticles(b.x, b.y, e.color, 4);
-          if (killed) this.onEnemyKilled(e);
-          if (b.pierce > 0) { b.pierce -= 1; } else { b.dead = true; break; }
-        }
-      }
-    }
-
-    for (const b of this.bullets) {
-      if (b.owner !== "enemy" || b.dead) continue;
-      if (circleHit(b.x, b.y, b.radius, this.player.x, this.player.y, this.player.radius)) {
-        if (this.player.takeDamage(b.damage)) {
-          this.onPlayerHit();
-          b.dead = true;
-        } else if (this.player.isInvulnerable) {
-          b.dead = true; // rolling through bullets destroys them harmlessly
-        }
-      }
-    }
-
-    for (const e of this.enemies) {
-      if (!e.alive) continue;
-      if (circleHit(this.player.x, this.player.y, this.player.radius, e.x, e.y, e.radius)) {
-        if (this.player.takeDamage(e.contactDamage)) this.onPlayerHit();
-      }
-    }
-  }
-
   onPlayerHit() {
     this.damageFlash = 0.35;
-    this.spawnHitParticles(this.player.x, this.player.y, "#ff4d4d", 8);
+    this.spawnParticles(this.player.x, this.player.y, "#ff4d4d", 8);
   }
 
   onEnemyKilled(e) {
     this.score += e.score;
-    this.spawnHitParticles(e.x, e.y, e.color, e.isBoss ? 60 : 14);
+    this.player.kills += 1;
+    this.spawnParticles(e.x, e.y, e.color, e.isBoss ? 60 : 12);
+
+    // XP: bosses burst into many gems; the gem cap keeps huge fights cheap.
+    const chunks = e.isBoss ? 8 : 1;
+    for (let i = 0; i < chunks; i++) {
+      const v = Math.max(1, Math.round(e.xp / chunks));
+      if (this.gems.length < MAX_GEMS) this.gems.push(new XpGem(e.x, e.y, v));
+      else this.addXp(v);
+    }
+
+    const level = Math.floor(this.director.time / 60);
+    if (e.isBoss) {
+      for (let i = 0; i < LOOT.bossItemDrops; i++) this.dropLoot(e, makeGear({ level, minRarity: 2 }));
+      this.dropLoot(e, makePotion());
+      this.showBanner(`${e.name.toUpperCase()} DEFEATED`, 3, UI.gold);
+    } else {
+      if (Math.random() < LOOT.itemDropChance) this.dropLoot(e, makeGear({ level }));
+      if (Math.random() < LOOT.potionDropChance) this.dropLoot(e, makePotion());
+    }
   }
 
-  onWaveCleared() {
-    this.state = STATE.UPGRADE;
-    this.unlockPointer();
-    this.showUpgradeScreen();
+  dropLoot(e, item) {
+    this.loot.push(new Loot(e.x, e.y, item));
+    // Don't let an ignored floor of commons pile up forever.
+    if (this.loot.length > 60) {
+      const i = this.loot.findIndex((l) => l.item.rarity === "common");
+      this.loot.splice(i >= 0 ? i : 0, 1);
+    }
   }
 
   onGameOver() {
     this.state = STATE.GAMEOVER;
     this.unlockPointer();
-    this.dom.finalStats.textContent = `Wave ${this.wave} — Score ${this.score}`;
-    this.dom.gameOverScreen.classList.remove("hidden");
+    this.ui.showGameOver(this);
   }
 
-  // -------------------------------------------------------------------------
-  // Upgrade screen
-  // -------------------------------------------------------------------------
-
-  showUpgradeScreen() {
-    const picks = rollUpgrades(this.player, 3);
-    this.dom.upgradeCards.innerHTML = "";
-    for (const u of picks) {
-      const card = document.createElement("div");
-      card.className = "card";
-      card.innerHTML = `
-        <div class="icon">${u.icon}</div>
-        <div class="name">${u.name}</div>
-        <div class="desc">${u.desc}</div>
-        <div class="rarity rarity-${u.rarity}">${u.rarity}</div>
-      `;
-      card.addEventListener("click", () => this.chooseUpgrade(u));
-      this.dom.upgradeCards.appendChild(card);
-    }
-    this.dom.upgradeScreen.classList.remove("hidden");
-  }
-
-  chooseUpgrade(u) {
-    u.apply(this.player);
-    this.dom.upgradeScreen.classList.add("hidden");
-    this.wave += 1;
-    this.spawner.startWave(this.wave);
-    this.state = STATE.PLAYING;
-    this.lockPointer();
-  }
-
-  spawnHitParticles(x, y, color, count) {
+  spawnParticles(x, y, color, count) {
     for (let i = 0; i < count; i++) this.particles.push(new Particle(x, y, color));
   }
 
-  // -------------------------------------------------------------------------
-  // HUD (DOM)
-  // -------------------------------------------------------------------------
-
-  syncHud() {
-    const hpPct = clamp((this.player.hp / this.player.maxHp) * 100, 0, 100);
-    this.dom.hpBar.style.width = hpPct + "%";
-    const rollPct = this.player.rollReady
-      ? 100
-      : clamp(100 - (this.player.rollCooldownTimer / this.player.rollCooldown) * 100, 0, 100);
-    this.dom.dashBar.style.width = rollPct + "%";
-    this.dom.waveLabel.textContent = "Wave " + this.wave;
-    this.dom.scoreLabel.textContent = "Score " + this.score;
-
-    const weaponKey = this.player.weapons.join(",");
-    if (this.dom.weaponRow.dataset.key !== weaponKey) {
-      this.dom.weaponRow.dataset.key = weaponKey;
-      this.dom.weaponRow.innerHTML = this.player.weapons
-        .map((id) => `<span class="weaponChip" style="--wc:${WEAPONS[id].color}">${WEAPONS[id].icon} ${WEAPONS[id].name}</span>`)
-        .join("");
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Render
-  // -------------------------------------------------------------------------
+  // ---- Render ----------------------------------------------------------------
 
   render(dt) {
     this.renderer.render(this, dt);
-
-    const ctx = this.ctx;
-    ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-    if (this.state === STATE.START) return;
-
-    if (this.damageFlash > 0) this.drawDamageVignette(ctx);
-    if (this.state === STATE.PLAYING) this.drawCrosshair(ctx);
-    this.drawRadar(ctx);
-    this.drawBossUi(ctx);
-    this.drawBanner(ctx);
-  }
-
-  drawCrosshair(ctx) {
-    const { x, y } = this.renderer.projectAim(this);
-    ctx.save();
-    ctx.strokeStyle = "rgba(255, 240, 220, 0.9)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(x - 10, y); ctx.lineTo(x - 4, y);
-    ctx.moveTo(x + 4, y); ctx.lineTo(x + 10, y);
-    ctx.moveTo(x, y - 10); ctx.lineTo(x, y - 4);
-    ctx.moveTo(x, y + 4); ctx.lineTo(x, y + 10);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // Player-relative radar, forward = up. Essential in 3rd person: it's the
-  // only way to see bullets coming from behind.
-  drawRadar(ctx) {
-    const { x: cx, y: cy, r, range } = RADAR;
-    const p = this.player;
-    const cos = Math.cos(this.yaw), sin = Math.sin(this.yaw);
-    const k = r / range;
-    const toRadar = (wx, wy) => {
-      const dx = wx - p.x, dy = wy - p.y;
-      const f = dx * cos + dy * sin;
-      const s = -dx * sin + dy * cos;
-      return [cx + s * k, cy - f * k];
-    };
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(10, 6, 12, 0.6)";
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255, 170, 110, 0.5)";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.clip();
-
-    // Island edge
-    const [ex, ey] = toRadar(0, 0);
-    ctx.beginPath();
-    ctx.arc(ex, ey, ARENA_RADIUS * k, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(120, 200, 120, 0.35)";
-    ctx.stroke();
-
-    ctx.fillStyle = "rgba(160, 150, 140, 0.5)";
-    for (const o of OBSTACLES) {
-      const [ox, oy] = toRadar(o.x, o.y);
-      ctx.fillRect(ox - 2, oy - 2, 4, 4);
-    }
-    for (const b of this.bullets) {
-      if (b.owner !== "enemy") continue;
-      const [bx, by] = toRadar(b.x, b.y);
-      ctx.fillStyle = b.color;
-      ctx.fillRect(bx - 1, by - 1, 2, 2);
-    }
-    for (const e of this.enemies) {
-      const [x, y] = toRadar(e.x, e.y);
-      const s = e.isBoss ? 7 : 4;
-      ctx.fillStyle = e.color;
-      ctx.fillRect(x - s / 2, y - s / 2, s, s);
-    }
-
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - 5);
-    ctx.lineTo(cx - 4, cy + 4);
-    ctx.lineTo(cx + 4, cy + 4);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  }
-
-  drawDamageVignette(ctx) {
-    const a = clamp(this.damageFlash / 0.35, 0, 1) * 0.55;
-    const g = ctx.createRadialGradient(CANVAS_W / 2, CANVAS_H / 2, 180, CANVAS_W / 2, CANVAS_H / 2, 560);
-    g.addColorStop(0, "rgba(255,0,0,0)");
-    g.addColorStop(1, `rgba(255,20,20,${a})`);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, VIEW_TOP, CANVAS_W, VIEW_H);
-  }
-
-  drawBossUi(ctx) {
-    if (!this.activeBoss) return;
-    const boss = this.activeBoss;
-    const w = 440, x = (CANVAS_W - w) / 2, y = VIEW_TOP + 10;
-    const pct = clamp(boss.hp / boss.maxHp, 0, 1);
-
-    ctx.save();
-    ctx.textAlign = "center";
-    ctx.font = "bold 13px 'Segoe UI', sans-serif";
-    ctx.fillStyle = "#ffd23b";
-    ctx.shadowColor = "#000";
-    ctx.shadowBlur = 4;
-    ctx.fillText(boss.name.toUpperCase(), CANVAS_W / 2, y + 12);
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.fillRect(x, y + 18, w, 10);
-    ctx.fillStyle = "#ff2b4d";
-    ctx.fillRect(x, y + 18, w * pct, 10);
-    ctx.strokeStyle = "rgba(255,255,255,0.3)";
-    ctx.strokeRect(x, y + 18, w, 10);
-    ctx.restore();
-  }
-
-  drawBanner(ctx) {
-    if (this.bannerTimer <= 0 || !this.bannerText) return;
-    const fadeIn = this.bannerTimer > 2.5 ? (3 - this.bannerTimer) / 0.5 : 1;
-    const fadeOut = clamp(this.bannerTimer / 0.6, 0, 1);
-    ctx.save();
-    ctx.globalAlpha = clamp(Math.min(fadeIn, fadeOut), 0, 1);
-    ctx.textAlign = "center";
-    ctx.font = "bold 30px 'Segoe UI', sans-serif";
-    ctx.fillStyle = "#ffcf6b";
-    ctx.shadowColor = "#ff2b4d";
-    ctx.shadowBlur = 18;
-    ctx.fillText(this.bannerText, CANVAS_W / 2, CANVAS_H / 2 - 60);
-    ctx.restore();
+    this.hud.draw(this, dt);
   }
 }

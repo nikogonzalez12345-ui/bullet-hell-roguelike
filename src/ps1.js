@@ -178,6 +178,28 @@ function buildTextures() {
     speckle(ctx, s, ["#1f3d1a", "#3f7a2e", "#4c8a35", "#274a20"], 220, 1, 3);
     speckle(ctx, s, ["#e0701e", "#f08a28", "#c85a1a"], 40, 1, 2); // sunset catching the canopy
   });
+  TEX.leavesAutumn = makeTexture(32, (ctx, s) => {
+    ctx.fillStyle = "#a8481e"; ctx.fillRect(0, 0, s, s);
+    speckle(ctx, s, ["#7a2a14", "#d8641e", "#f0902a", "#8a3a1a"], 220, 1, 3);
+    speckle(ctx, s, ["#ffc04a", "#5a7a2a"], 30, 1, 2);
+  });
+  TEX.pine = makeTexture(16, (ctx, s) => {
+    ctx.fillStyle = "#1e3f2a"; ctx.fillRect(0, 0, s, s);
+    speckle(ctx, s, ["#14301e", "#2a5a36", "#35683e"], 90, 1, 2);
+    speckle(ctx, s, ["#c86a2a"], 6);
+  });
+  TEX.flower = makeTexture(16, (ctx, s) => {
+    ctx.clearRect(0, 0, s, s);
+    const petals = ["#ffd24a", "#ff6a8a", "#ffffff", "#c05aff"];
+    for (let i = 0; i < 5; i++) {
+      const x = Math.floor(rand(2, s - 3));
+      const h = Math.floor(rand(5, s - 3));
+      ctx.fillStyle = "#4a7a2e";
+      ctx.fillRect(x, s - h, 1, h);
+      ctx.fillStyle = petals[Math.floor(Math.random() * petals.length)];
+      ctx.fillRect(x - 1, s - h - 1, 3, 2);
+    }
+  }, false);
   TEX.bark = makeTexture(16, (ctx, s) => {
     ctx.fillStyle = "#4a3a30"; ctx.fillRect(0, 0, s, s);
     for (let x = 0; x < s; x += 3) {

@@ -109,7 +109,8 @@ class CharacterModel {
 
     if (s.backpack) {
       const pack = this.mat({ map: this.tex("#3a4a2a") });
-      this.part(box(0.44, 0.52, 0.2), pack, 0, 1.22, -0.26);
+      this.backpack = this.part(box(0.44, 0.52, 0.2), pack, 0, 1.22, -0.26);
+      this.backpackSlots = PLAYER.backpackSlots;
     }
     if (s.tails) {
       this.tails = [];
@@ -179,6 +180,15 @@ class CharacterModel {
 
   flash(amount) {
     for (const m of this.mats) m.uniforms.flash.value = amount;
+  }
+
+  // The pack visibly swells as backpack upgrades add slots.
+  setBackpackSize(slots) {
+    if (!this.backpack || slots === this.backpackSlots) return;
+    this.backpackSlots = slots;
+    const k = 1 + (slots - PLAYER.backpackSlots) * 0.035;
+    this.backpack.scale.set(1 + (k - 1) * 0.6, k, k * 1.4);
+    this.backpack.position.z = -0.26 - (k - 1) * 0.16;
   }
 
   // state: { moving, rolling, rollAngle, time }

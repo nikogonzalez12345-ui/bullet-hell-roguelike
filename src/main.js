@@ -22,15 +22,15 @@
   // ---- Pointer lock: mouse-look needs it; losing it (Esc) pauses. --------
   let hadLock = false;
   game.lockPointer = () => {
-    if (document.pointerLockElement !== app && app.requestPointerLock) {
-      try {
-        const r = app.requestPointerLock();
-        if (r && r.catch) r.catch(() => {});
-      } catch (_) { /* unsupported (e.g. some iframes) — mousemove fallback below */ }
-    }
+    if (document.pointerLockElement === app || !app.requestPointerLock) return;
+    try {
+      const r = app.requestPointerLock();
+      if (r && r.catch) r.catch(() => {});
+    } catch (_) { /* unsupported (e.g. some iframes) — mousemove fallback below */ }
   };
   game.unlockPointer = () => {
     hadLock = false;
+    input.mouseDown = false;
     if (document.pointerLockElement) document.exitPointerLock();
   };
   document.addEventListener("pointerlockchange", () => {
@@ -45,8 +45,8 @@
 
   document.addEventListener("mousemove", (e) => {
     const locked = document.pointerLockElement === app;
-    // Without lock (unsupported browser), still turn while the cursor is over the game.
-    if (locked || app.contains(e.target)) game.look(e.movementX || 0, e.movementY || 0);
+    // Without lock (unsupported browser), still turn while over the 3D view.
+    if (locked || e.target === view) game.look(e.movementX || 0);
   });
 
   // ---- Keyboard ------------------------------------------------------------
@@ -61,6 +61,14 @@
     const dir = KEY_MAP[e.code];
     if (dir) { input[dir] = true; e.preventDefault(); }
     if (e.code === "Space") { input.dashPressed = true; e.preventDefault(); }
+    if (e.repeat) return;
+    if (e.code === "Tab" || e.code === "KeyI") {
+      e.preventDefault();
+      if (game.state === STATE.INVENTORY) game.closeInventory(true);
+      else game.openInventory();
+    }
+    if (e.code === "Escape" && game.state === STATE.INVENTORY) game.closeInventory(false);
+    if (e.code === "KeyQ") game.usePotion();
     if (e.code === "KeyP") game.state === STATE.PAUSED ? game.resume() : game.pause();
   });
   window.addEventListener("keyup", (e) => {
@@ -74,7 +82,8 @@
 
   // ---- Mouse buttons ---------------------------------------------------------
   view.addEventListener("mousedown", (e) => {
-    if (game.state === STATE.PLAYING && document.pointerLockElement !== app) game.lockPointer();
+    if (game.state !== STATE.PLAYING) return;
+    if (document.pointerLockElement !== app) game.lockPointer();
     if (e.button === 0) input.mouseDown = true;
     if (e.button === 2) input.dashPressed = true;
   });
