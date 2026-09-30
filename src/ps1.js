@@ -6,10 +6,30 @@
 // affine (non-perspective-correct) texture mapping (warping), and
 // per-vertex Gouraud lighting with 15-bit colour + ordered dithering.
 
-const PS1_SNAP = new THREE.Vector2(RENDER_W / 2, RENDER_H / 2);
-const SUN_DIR = new THREE.Vector3(0, 0.28, -1).normalize();
-const FILL_DIR = new THREE.Vector3(0.35, 0.6, 1).normalize();
-const FOG_COLOR = new THREE.Color("#5a2320");
+const PS1_SNAP = new THREE.Vector2(RENDER_W / 2, RENDER_H / 2); // updated on resize
+
+// Scene-wide lighting + fog, shared by reference with every material so a
+// biome change relights the whole world at once (see applyLighting).
+const SCENE = {
+  lightDir: { value: new THREE.Vector3(0, 0.28, -1).normalize() },
+  lightColor: { value: new THREE.Color("#ffb070") },
+  ambient: { value: new THREE.Color("#5a4a78") },
+  fillDir: { value: new THREE.Vector3(0.35, 0.6, 1).normalize() },
+  fillColor: { value: new THREE.Color("#6a6090") },
+  fogColor: { value: new THREE.Color("#5a2320") },
+  fogNear: { value: 18 },
+  fogFar: { value: 70 },
+};
+
+function applyLighting(l) {
+  SCENE.lightDir.value.set(...l.dir).normalize();
+  SCENE.lightColor.value.set(l.color);
+  SCENE.ambient.value.set(l.ambient);
+  SCENE.fillColor.value.set(l.fill);
+  SCENE.fogColor.value.set(l.fog);
+  SCENE.fogNear.value = l.fogNear;
+  SCENE.fogFar.value = l.fogFar;
+}
 
 // Shared by every scenery material that opts in with `occlusionFade`: props
 // within fadeR of the camera->player line are screen-door dithered away,
@@ -40,10 +60,12 @@ const PS1_VERTEX = `
   uniform vec3 fillColor;
   uniform vec2 uvScale;
   uniform vec2 uvOffset;
+  uniform float rimStrength;
   varying vec3 vUvw;
   varying vec3 vLight;
   varying vec3 vTint;
   varying float vFogDepth;
+  varying float vRim;
   #ifdef OCCLUSION_FADE
     varying vec3 vWorld;
   #endif
@@ -81,6 +103,14 @@ const PS1_VERTEX = `
       + lightColor * max(dot(worldN, lightDir), 0.0)
       + fillColor * max(dot(worldN, fillDir), 0.0);
 
+    // Rim light (enemies): edges facing away from the camera glow a little,
+    // so silhouettes separate from dark ground and fog.
+    vRim = 0.0;
+    if (rimStrength > 0.0) {
+      vec3 viewDir = normalize(cameraPosition - (modelMatrix * local).xyz);
+      vRim = rimStrength * pow(1.0 - max(dot(worldN, viewDir), 0.0), 2.0);
+    }
+
     vTint = vec3(1.0);
     #ifdef USE_COLOR
       vTint *= color;
@@ -103,10 +133,13 @@ const PS1_FRAGMENT = `
   uniform vec3 fogColor;
   uniform float fogNear;
   uniform float fogFar;
+  uniform float fogAmount;
+  uniform vec3 rimColor;
   varying vec3 vUvw;
   varying vec3 vLight;
   varying vec3 vTint;
   varying float vFogDepth;
+  varying float vRim;
   #ifdef OCCLUSION_FADE
     uniform vec3 fadeA;
     uniform vec3 fadeB;
@@ -132,8 +165,9 @@ const PS1_FRAGMENT = `
       c *= t.rgb;
     }
     if (unlit < 0.5) c *= vLight;
+    c += rimColor * vRim;
     c = mix(c, flashColor, flash);
-    c = mix(c, fogColor, smoothstep(fogNear, fogFar, vFogDepth));
+    c = mix(c, fogColor, smoothstep(fogNear, fogFar, vFogDepth) * fogAmount);
     gl_FragColor = vec4(ps1Quantize(c), opacity);
   }
 `;
@@ -151,14 +185,18 @@ function ps1Material(opts = {}) {
       uvScale: { value: opts.uvScale || new THREE.Vector2(1, 1) },
       uvOffset: { value: new THREE.Vector2(0, 0) },
       snapRes: { value: PS1_SNAP },
-      lightDir: { value: SUN_DIR },
-      lightColor: { value: new THREE.Color("#ffb070") },
-      ambient: { value: new THREE.Color("#5a4a78") },
-      fillDir: { value: FILL_DIR },
-      fillColor: { value: new THREE.Color("#6a6090") },
-      fogColor: { value: FOG_COLOR },
-      fogNear: { value: opts.fog === false ? 1e6 : 18 },
-      fogFar: { value: opts.fog === false ? 2e6 : 70 },
+      lightDir: SCENE.lightDir,
+      lightColor: SCENE.lightColor,
+      ambient: SCENE.ambient,
+      fillDir: SCENE.fillDir,
+      fillColor: SCENE.fillColor,
+      fogColor: SCENE.fogColor,
+      // Shared scene fog unless the material opts out or brings its own.
+      fogNear: opts.fog === false ? { value: 1e6 } : opts.fogNear !== undefined ? { value: opts.fogNear } : SCENE.fogNear,
+      fogFar: opts.fog === false ? { value: 2e6 } : opts.fogFar !== undefined ? { value: opts.fogFar } : SCENE.fogFar,
+      fogAmount: { value: 1 },
+      rimColor: { value: new THREE.Color("#000000") },
+      rimStrength: { value: 0 },
       fadeA: OCCLUSION.fadeA,
       fadeB: OCCLUSION.fadeB,
       fadeR: OCCLUSION.fadeR,
@@ -254,6 +292,41 @@ function buildTextures() {
       ctx.fillStyle = Math.random() < 0.7 ? "#1c3450" : "#a0502a";
       ctx.fillRect(Math.floor(rand(0, s)), Math.floor(rand(0, s)), Math.round(rand(3, 8)), 1);
     }
+  });
+  TEX.caveFloor = makeTexture(32, (ctx, s) => {
+    ctx.fillStyle = "#4a4452"; ctx.fillRect(0, 0, s, s);
+    speckle(ctx, s, ["#3a3442", "#5a5462", "#2e2a36", "#625a6a"], 260, 1, 3);
+    speckle(ctx, s, ["#3a6a7a"], 8);
+  });
+  TEX.ash = makeTexture(32, (ctx, s) => {
+    ctx.fillStyle = "#4a3836"; ctx.fillRect(0, 0, s, s);
+    speckle(ctx, s, ["#3a2a28", "#5a4442", "#322422", "#624a46"], 240, 1, 3);
+    // a few glowing cracks
+    for (let i = 0; i < 3; i++) {
+      let x = Math.floor(rand(0, s)), y = Math.floor(rand(0, s));
+      ctx.fillStyle = Math.random() < 0.5 ? "#ff5a1a" : "#c8300a";
+      for (let k = 0; k < 7; k++) {
+        ctx.fillRect(x, y, 1, 1);
+        x = (x + (Math.random() < 0.5 ? 1 : 0) + s) % s;
+        y = (y + (Math.random() < 0.5 ? 1 : -1) + s) % s;
+      }
+    }
+  });
+  TEX.lava = makeTexture(32, (ctx, s) => {
+    ctx.fillStyle = "#e0420a"; ctx.fillRect(0, 0, s, s);
+    speckle(ctx, s, ["#ff7a1a", "#ffb02a", "#a8200a", "#ffd84a", "#6a0a04"], 300, 1, 4);
+  });
+  TEX.obsidian = makeTexture(16, (ctx, s) => {
+    ctx.fillStyle = "#1a1224"; ctx.fillRect(0, 0, s, s);
+    speckle(ctx, s, ["#2a1e3a", "#0e0a14", "#4a3a6a"], 60, 1, 2);
+  });
+  TEX.deadBark = makeTexture(16, (ctx, s) => {
+    ctx.fillStyle = "#2a2220"; ctx.fillRect(0, 0, s, s);
+    for (let x = 0; x < s; x += 3) { ctx.fillStyle = Math.random() < 0.5 ? "#1a1412" : "#3a302c"; ctx.fillRect(x, 0, 1, s); }
+  });
+  TEX.stone = makeTexture(16, (ctx, s) => {
+    ctx.fillStyle = "#8a8478"; ctx.fillRect(0, 0, s, s);
+    speckle(ctx, s, ["#76706a", "#9a948a", "#6a645c"], 60, 1, 2);
   });
   TEX.grassTuft = makeTexture(16, (ctx, s) => {
     ctx.clearRect(0, 0, s, s);

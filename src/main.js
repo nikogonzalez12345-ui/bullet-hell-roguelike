@@ -2,16 +2,37 @@
   const app = document.getElementById("app");
   const view = document.getElementById("view");
   const overlay = document.getElementById("overlay");
-  const renderer = new Renderer3D(view);
+
+  // Fill the whole window: the UI works in logical pixels (at least 960x600)
+  // scaled up to the real window, and the 3D view matches the window's aspect.
+  let renderer = null;
+  function fitToWindow() {
+    const s = setViewport(innerWidth, innerHeight);
+    app.style.width = CANVAS_W + "px";
+    app.style.height = CANVAS_H + "px";
+    app.style.transform = `scale(${s})`;
+    overlay.width = CANVAS_W;
+    overlay.height = CANVAS_H;
+    if (renderer) renderer.resize();
+  }
+  fitToWindow();
+  renderer = new Renderer3D(view);
+  renderer.resize();
+  window.addEventListener("resize", fitToWindow);
+
   const game = new Game(renderer, overlay.getContext("2d"));
   window.game = game; // handy for debugging from the console
 
-  function fitToWindow() {
-    const s = clamp(Math.min((innerWidth - 24) / CANVAS_W, (innerHeight - 24) / CANVAS_H), 0.3, 2);
-    app.style.transform = `translate(-50%, -50%) scale(${s})`;
-  }
-  window.addEventListener("resize", fitToWindow);
-  fitToWindow();
+  // True fullscreen on New Game (must happen inside the click that starts it).
+  game.enterFullscreen = () => {
+    if (document.fullscreenElement || !document.documentElement.requestFullscreen) return;
+    const r = document.documentElement.requestFullscreen();
+    if (r && r.catch) r.catch(() => {});
+  };
+  game.toggleFullscreen = () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else game.enterFullscreen();
+  };
 
   // Build tag (the ?v= on this script's URL) shown on the main menu, so it's
   // obvious whether a browser is running the latest deploy.

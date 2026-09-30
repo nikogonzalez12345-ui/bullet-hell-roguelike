@@ -86,6 +86,35 @@ function itemColor(item) {
   return item.kind === "potion" ? "#ff5a5a" : RARITY_BY_ID[item.rarity].color;
 }
 
+// ---------------------------------------------------------------------------
+// Auto-salvage rules: an item is outclassed when you own another item of the
+// same class (weapon class, or armor slot) that is both a higher rarity tier
+// and stronger overall.
+// ---------------------------------------------------------------------------
+
+function itemTier(item) {
+  return RARITIES.findIndex((r) => r.id === item.rarity);
+}
+
+function itemScore(item) {
+  const mult = RARITY_BY_ID[item.rarity].mult;
+  if (item.kind === "weapon") return mult * (1 + (item.level - 1) * 0.1) * (1 + 0.3 * item.mutations.length);
+  return mult * (1 + (item.level - 1) * 0.12);
+}
+
+function sameClass(a, b) {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "weapon") return WEAPON_BASES[a.base].cls === WEAPON_BASES[b.base].cls;
+  return a.kind === "gear" && a.slot === b.slot;
+}
+
+function isOutclassed(item, player) {
+  if (item.kind === "potion") return false;
+  const owned = [...player.weaponSlots, ...Object.values(player.equipped), ...player.backpack];
+  return owned.some((o) => o && o !== item && sameClass(o, item) &&
+    itemTier(o) > itemTier(item) && itemScore(o) > itemScore(item));
+}
+
 function statLines(stats) {
   return Object.entries(stats).map(([k, v]) => STAT_DEFS[k].label(v));
 }

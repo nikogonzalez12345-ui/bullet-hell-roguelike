@@ -30,27 +30,26 @@ html, body {
   -webkit-font-smoothing: none;
 }
 
-/* Fixed 960x600 design size, scaled to fit the window by main.js. */
+/* Fills the window. main.js sets the logical size (>= 960x600 UI pixels)
+   and scales it up to the real window from the top-left corner. */
 #app {
-  position: absolute;
-  left: 50%;
-  top: 50%;
+  position: fixed;
+  left: 0;
+  top: 0;
   width: 960px;
   height: 600px;
-  transform: translate(-50%, -50%);
+  transform-origin: 0 0;
   background: #000;
-  box-shadow: 0 0 0 var(--px) var(--ink), 0 0 0 calc(var(--px) * 2) var(--panel-light);
   user-select: none;
+  overflow: hidden;
 }
 
-/* 3D view renders tiny and is upscaled with nearest-neighbour sampling;
-   the black bars above/below are the letterbox. */
+/* 3D view renders tiny and is upscaled with nearest-neighbour sampling. */
 canvas#view {
   position: absolute;
-  top: 30px;
-  left: 0;
-  width: 960px;
-  height: 540px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   cursor: none;
@@ -66,7 +65,7 @@ canvas#overlay {
 
 .screen {
   position: absolute;
-  inset: 30px 0;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;

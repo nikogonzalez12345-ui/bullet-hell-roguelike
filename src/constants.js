@@ -1,20 +1,46 @@
 // Global tunables. Kept in one place so balancing is a config edit, not a code hunt.
 
-// HUD overlay size (the 3D view sits inside it, letterboxed).
-const CANVAS_W = 960;
-const CANVAS_H = 600;
-const VIEW_TOP = 30;
-const VIEW_H = 540;
+// Logical screen size in "UI pixels". The game fills the whole window, so
+// these are recomputed on resize (see setViewport): the shorter side is at
+// least 960x600 UI pixels and everything is scaled up to the real window.
+const MIN_UI_W = 960;
+const MIN_UI_H = 600;
+let CANVAS_W = MIN_UI_W;
+let CANVAS_H = MIN_UI_H;
+let VIEW_TOP = 0;
+let VIEW_H = CANVAS_H;
+
+// Internal 3D render resolution — the PS1 look depends on this being tiny.
+// Height stays ~180 lines; width follows the window's aspect ratio.
+const RENDER_SCALE = 0.3;
+let RENDER_W = 320;
+let RENDER_H = 180;
+
+function setViewport(windowW, windowH) {
+  const s = Math.min(windowW / MIN_UI_W, windowH / MIN_UI_H);
+  CANVAS_W = Math.round(windowW / s);
+  CANVAS_H = Math.round(windowH / s);
+  VIEW_TOP = 0;
+  VIEW_H = CANVAS_H;
+  RENDER_W = Math.round(CANVAS_W * RENDER_SCALE);
+  RENDER_H = Math.round(CANVAS_H * RENDER_SCALE);
+  return s;
+}
 
 // Gameplay still simulates on a flat 2D plane in "sim units" (the old pixel
 // scale, so all speed/range tuning carries over). WORLD_SCALE converts sim
 // units to Three.js world units: sim (x, y) -> world (x, z).
-const ARENA_RADIUS = 1500;
+const ARENA_RADIUS = 1800;
 const WORLD_SCALE = 0.05;
 
-// Internal render resolution — the PS1 look depends on this being tiny.
-const RENDER_W = 320;
-const RENDER_H = 180;
+// The run moves through four biomes as the clock advances. A stage change
+// waits for any living boss to die first.
+const STAGES = [
+  { biome: "sunset", name: "SUNSET ISLE", start: 0 },
+  { biome: "night",  name: "NIGHTFALL",   start: 240 },
+  { biome: "cave",   name: "THE DEPTHS",  start: 480 },
+  { biome: "hell",   name: "INFERNO",     start: 720 },
+];
 
 const PLAYER = {
   radius: 12,
@@ -83,7 +109,6 @@ const RARITIES = [
 const AIM = {
   cone: 0.12,
   range: 760,
-  blockCheck: 220, // how far ahead to look for a tree/rock in the line of fire
 };
 
 const LOOT = {

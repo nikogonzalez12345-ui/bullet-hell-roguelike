@@ -4,6 +4,7 @@
 const STATE = {
   MENU: "menu", PLAYING: "playing", PAUSED: "paused",
   LEVELUP: "levelup", INVENTORY: "inventory", GAMEOVER: "gameover",
+  TRANSITION: "transition",
 };
 
 const newSeed = () => Math.floor(Math.random() * 1e6);
@@ -17,8 +18,9 @@ class Game {
     this.unlockPointer = () => {};
     try { this.autoFire = localStorage.getItem("voidrunner.autofire") === "1"; } catch (_) { this.autoFire = false; }
 
+    this.enterFullscreen = () => {};
     this.seed = newSeed();
-    this.renderer.newWorld(this.seed);
+    this.renderer.newWorld(this.seed, "sunset");
     this.resetRun();
     this.state = STATE.MENU;
     this.ui.show("mainMenu");
@@ -52,8 +54,10 @@ class Game {
     this.damageFlash = 0;
     this.fullWarnCooldown = 0;
     this.aimTarget = null;
-    this.aimBlocked = false;
     this.lockTime = 0;
+    this.stageIndex = 0;
+    this.transition = null;
+    this.bossGateWarned = false;
     this.yaw = -Math.PI / 2; // facing the sunset
   }
 
@@ -61,19 +65,89 @@ class Game {
 
   newGame() {
     this.seed = newSeed();
-    this.renderer.newWorld(this.seed);
+    this.renderer.newWorld(this.seed, STAGES[0].biome);
     this.resetRun();
     this.state = STATE.PLAYING;
     this.ui.show(null);
     this.showBanner("SURVIVE", 2, UI.gold);
+    this.enterFullscreen();
     this.lockPointer();
   }
 
   toMainMenu() {
+    if (this.stageIndex !== 0) this.renderer.newWorld(this.seed, "sunset");
     this.resetRun();
     this.state = STATE.MENU;
     this.unlockPointer();
     this.ui.show("mainMenu");
+  }
+
+  // ---- Stages ----------------------------------------------------------------
+
+  // Move to the next biome once the clock passes its start. A living boss
+  // holds the gate for up to 45s ("defeat the boss to advance"); after that
+  // the stage changes anyway and the boss follows you through.
+  updateStage() {
+    const next = STAGES[this.stageIndex + 1];
+    if (!next || this.director.time < next.start) return;
+    if (this.enemies.some((e) => e.isBoss) && this.director.time < next.start + 45) {
+      if (!this.bossGateWarned) {
+        this.bossGateWarned = true;
+        this.showBanner("DEFEAT THE BOSS TO ADVANCE", 3, "#ff6a8a");
+      }
+      return;
+    }
+    this.bossGateWarned = false;
+    this.state = STATE.TRANSITION;
+    this.transition = { t: 0, dur: 3, swapAt: 0.9, to: this.stageIndex + 1, swapped: false };
+  }
+
+  updateTransition(dt) {
+    const tr = this.transition;
+    tr.t += dt;
+    if (!tr.swapped && tr.t >= tr.swapAt) {
+      tr.swapped = true;
+      this.swapStage(tr.to);
+    }
+    if (tr.t >= tr.dur) {
+      this.transition = null;
+      this.state = STATE.PLAYING;
+      const stage = STAGES[this.stageIndex];
+      this.showBanner(stage.name, 2.5, ELEMENT_BY_BIOME[stage.biome]);
+    }
+  }
+
+  // Behind the black screen: bank everything on the ground, clear the field
+  // and generate the next biome. Nightfall reuses the first island's seed so
+  // it's literally the same map after dark.
+  swapStage(index) {
+    const p = this.player;
+    for (const g of this.gems) this.addXp(g.value);
+    for (const l of this.loot) this.takeLoot(l.item);
+    const bosses = this.enemies.filter((e) => e.isBoss && e.alive);
+    this.gems = [];
+    this.loot = [];
+    this.enemies = bosses;
+    this.bullets = [];
+    this.swings = [];
+    this.blasts = [];
+    this.bolts = [];
+    this.puddles = [];
+    this.popups = [];
+    this.particles = [];
+    this.aimTarget = null;
+    this.stageIndex = index;
+    const biome = STAGES[index].biome;
+    this.renderer.newWorld(biome === "night" ? this.seed : this.seed + index * 7919, biome);
+    p.x = 0;
+    p.y = 0;
+    p.vx = p.vy = 0;
+    p.iframeTimer = Math.max(p.iframeTimer, 1.5); // a moment to get your bearings
+    for (const b of bosses) {
+      const s = this.director.spawnPoint(450, 560);
+      b.x = s.x;
+      b.y = s.y;
+    }
   }
 
   pause() {
@@ -143,6 +217,7 @@ class Game {
 
   update(dt, input) {
     if (this.damageFlash > 0) this.damageFlash -= dt;
+    if (this.state === STATE.TRANSITION) return this.updateTransition(dt);
     if (this.state !== STATE.PLAYING) return;
     if (this.bannerTimer > 0) this.bannerTimer -= dt;
     if (this.fullWarnCooldown > 0) this.fullWarnCooldown -= dt;
@@ -184,7 +259,8 @@ class Game {
     if (this.particles.length > 1400) this.particles.splice(0, this.particles.length - 1400);
 
     if (!p.alive) return this.onGameOver();
-    if (this.pendingLevels > 0) this.openLevelUp();
+    if (this.pendingLevels > 0) return this.openLevelUp();
+    this.updateStage();
   }
 
   // Soft lock-on. Hills put enemies above/below the fixed crosshair, so
@@ -213,14 +289,7 @@ class Game {
     if (best !== prev) this.lockTime = 0;
     this.lockTime += dt;
     this.aimTarget = best;
-    if (best) {
-      p.aimAngle = angleTo(p.x, p.y, best.x, best.y);
-      this.aimBlocked = false;
-    } else {
-      const ex = p.x + Math.cos(p.facing) * AIM.blockCheck;
-      const ey = p.y + Math.sin(p.facing) * AIM.blockCheck;
-      this.aimBlocked = !this.clearShot(p.x, p.y, ex, ey);
-    }
+    if (best) p.aimAngle = angleTo(p.x, p.y, best.x, best.y);
   }
 
   // True if no tree/rock sits on the straight line between two points.
@@ -302,17 +371,48 @@ class Game {
 
     for (const l of this.loot) {
       if (dist(l.x, l.y, p.x, p.y) > LOOT.pickupRange) continue;
-      const result = l.item.kind === "weapon" ? p.addWeaponItem(l.item) : p.addToBackpack(l.item);
-      if (result) {
+      if (this.takeLoot(l.item)) {
         l.taken = true;
-        const where = result === "equipped" ? " (EQUIPPED)" : "";
-        this.hud.toast(`+ ${l.item.name.toUpperCase()}${where}`, itemColor(l.item));
       } else if (this.fullWarnCooldown <= 0) {
         this.fullWarnCooldown = 2.5;
         this.hud.toast("BACKPACK FULL - PRESS TAB", UI.hp.light);
       }
     }
     this.loot = this.loot.filter((l) => !l.taken);
+  }
+
+  // Pick up an item: anything already outclassed by gear of the same class
+  // is salvaged for XP on the spot instead of taking a slot.
+  takeLoot(item) {
+    const p = this.player;
+    if (isOutclassed(item, p)) {
+      this.salvage(item);
+      return true;
+    }
+    const result = item.kind === "weapon" ? p.addWeaponItem(item) : p.addToBackpack(item);
+    if (!result) return false;
+    this.hud.toast(`+ ${item.name.toUpperCase()}${result === "equipped" ? " (EQUIPPED)" : ""}`, itemColor(item));
+    this.autoSalvage();
+    return true;
+  }
+
+  // Salvage backpack items outclassed by something you own (equipped items
+  // are never touched). Called after any pickup or loadout change.
+  autoSalvage() {
+    const p = this.player;
+    for (let i = p.backpack.length - 1; i >= 0; i--) {
+      const item = p.backpack[i];
+      if (isOutclassed(item, p)) {
+        p.backpack.splice(i, 1);
+        this.salvage(item);
+      }
+    }
+  }
+
+  salvage(item) {
+    const xp = 2 + itemTier(item) * 3 + Math.floor(item.level / 2);
+    this.addXp(xp);
+    this.hud.toast(`SALVAGED ${item.name.toUpperCase()} +${xp} XP`, UI.muted);
   }
 
   // ---- Damage + effects ---------------------------------------------------
@@ -509,6 +609,7 @@ class Game {
 
   chooseUpgrade(u) {
     u.apply(this.player);
+    this.autoSalvage();
     this.pendingLevels -= 1;
     if (this.pendingLevels > 0) {
       this.openLevelUp();

@@ -3,7 +3,8 @@
 // part of the same low-res world.
 
 const PX = 3;
-const RADAR = { x: CANVAS_W - 84, y: VIEW_TOP + 84, r: 66, range: 620 };
+// Radar sits in the top-right corner of whatever size the screen currently is.
+const RADAR = { r: 66, range: 700, get x() { return CANVAS_W - 84; }, get y() { return VIEW_TOP + 84; } };
 
 function hudText(ctx, text, x, y, size, color, align = "left") {
   ctx.font = `${size}px ${UI.font}`;
@@ -53,6 +54,9 @@ function hudBar(ctx, x, y, w, h, pct, pal, seg = 15) {
   ctx.globalAlpha = 1;
 }
 
+// Accent colour for each stage's title text.
+const ELEMENT_BY_BIOME = { sunset: "#ffb050", night: "#9ab4f0", cave: "#7ae0ff", hell: "#ff5a2a" };
+
 function fmtClock(t) {
   const m = Math.floor(t / 60), s = Math.floor(t % 60);
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
@@ -84,12 +88,24 @@ class Hud {
     this.drawHints(ctx, game);
     this.drawMessages(ctx, dt);
     this.drawPopups(ctx, game);
-    if (game.state === STATE.PLAYING) {
-      this.drawLock(ctx, game);
-      const mode = game.aimTarget ? "lock" : game.aimBlocked ? "blocked" : "free";
-      this.drawCrosshair(ctx, game.renderer.projectAim(game), mode);
-    }
+    if (game.state === STATE.PLAYING) this.drawLock(ctx, game);
     this.drawBanner(ctx, game);
+    if (game.transition) this.drawTransition(ctx, game.transition);
+  }
+
+  // Fade to black, show the new stage's title, fade back in.
+  drawTransition(ctx, tr) {
+    const { t, dur, swapAt } = tr;
+    const a = t < swapAt ? t / swapAt : clamp((dur - t) / (dur - swapAt - 0.6), 0, 1);
+    ctx.globalAlpha = clamp(a, 0, 1);
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    if (t > swapAt * 0.6) {
+      const stage = STAGES[tr.to];
+      hudText(ctx, `STAGE ${tr.to + 1}`, CANVAS_W / 2, CANVAS_H / 2 - 40, 8, UI.muted, "center");
+      hudText(ctx, stage.name, CANVAS_W / 2, CANVAS_H / 2 - 18, 24, ELEMENT_BY_BIOME[stage.biome], "center");
+    }
+    ctx.globalAlpha = 1;
   }
 
   drawVitals(ctx, game) {
@@ -165,17 +181,19 @@ class Hud {
   drawClock(ctx, game) {
     const t = game.director ? game.director.time : 0;
     const w = 150, x = CANVAS_W / 2 - w / 2, y = VIEW_TOP + 9;
-    hudPanel(ctx, x, y, w, 48);
+    hudPanel(ctx, x, y, w, 66);
     hudText(ctx, fmtClock(t), CANVAS_W / 2, y + 10, 16, UI.gold, "center");
     const threat = game.director ? game.director.threat : 1;
     const heat = ["#8fe04a", "#ffcf5c", "#f07a1e", "#d83a22", "#ff4a8a"][Math.min(4, Math.floor((threat - 1) / 2))];
     hudText(ctx, `THREAT ${threat}`, CANVAS_W / 2, y + 32, 8, heat, "center");
+    const stage = STAGES[game.stageIndex || 0];
+    hudText(ctx, stage.name, CANVAS_W / 2, y + 54, 8, ELEMENT_BY_BIOME[stage.biome], "center");
   }
 
   drawBoss(ctx, game) {
     const boss = game.activeBoss;
     if (!boss) return;
-    const w = 420, x = CANVAS_W / 2 - w / 2, y = VIEW_TOP + 66;
+    const w = 420, x = CANVAS_W / 2 - w / 2, y = VIEW_TOP + 80;
     hudText(ctx, boss.name.toUpperCase(), CANVAS_W / 2, y, 8, "#ffb0c0", "center");
     hudBar(ctx, x, y + 12, w, 15, boss.hp / boss.maxHp, UI.boss, 21);
   }
@@ -214,33 +232,6 @@ class Hud {
       hudText(ctx, m.text, 18, y, 8, m.color);
       ctx.globalAlpha = 1;
       y -= 15;
-    }
-  }
-
-  // Crosshair: cream when free, gold when locked on, red when a tree/rock
-  // is in the line of fire.
-  drawCrosshair(ctx, { x, y }, mode) {
-    const col = mode === "lock" ? UI.gold : mode === "blocked" ? UI.hp.fill : UI.cream;
-    const bar = (bx, by, w, h) => {
-      ctx.fillStyle = UI.ink;
-      ctx.fillRect(bx - 1, by - 1, w + 2, h + 2);
-      ctx.fillStyle = col;
-      ctx.fillRect(bx, by, w, h);
-    };
-    const gap = mode === "lock" ? 3 : 5;
-    bar(x - gap - 6, y - 1, 6, 3);
-    bar(x + gap, y - 1, 6, 3);
-    bar(x - 1, y - gap - 6, 3, 6);
-    bar(x - 1, y + gap, 3, 6);
-    if (mode === "blocked") {
-      ctx.fillStyle = UI.hp.fill;
-      for (let i = -2; i <= 2; i++) {
-        ctx.fillRect(x + i * 2 - 1, y + i * 2 - 1, 2, 2);
-        ctx.fillRect(x + i * 2 - 1, y - i * 2 - 1, 2, 2);
-      }
-    } else {
-      ctx.fillStyle = mode === "lock" ? UI.gold : UI.hp.light;
-      ctx.fillRect(x - 1, y - 1, 3, 3);
     }
   }
 

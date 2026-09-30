@@ -48,6 +48,7 @@ class GameUI {
       else if (a === "resume") game.resume();
       else if (a === "menu") game.toMainMenu();
       else if (a === "closeInv") game.closeInventory(true);
+      else if (a === "fullscreen") game.toggleFullscreen();
     });
   }
 
@@ -150,6 +151,8 @@ class GameUI {
             if (!p.drinkPotion(i)) this.game.hud.toast("ALREADY AT FULL HP", UI.muted);
           } else if (p.equipFromBackpack(i) === "slots-full") {
             this.game.hud.toast("WEAPON SLOTS FULL - UNEQUIP ONE FIRST", UI.hp.light);
+          } else {
+            this.game.autoSalvage(); // the swapped-out piece may now be outclassed
           }
           this.renderInventory();
         });

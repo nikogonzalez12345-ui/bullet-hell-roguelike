@@ -9,9 +9,10 @@ const MAX_PARTICLES = 1500;
 const MAX_SHADOWS = 200;
 const MAX_GEMS = 900;
 
-// Fixed over-the-shoulder rig (world units). Pitch never changes, so the
-// crosshair stays locked to one spot on screen.
-const CAM = { back: 5.0, up: 2.6, shoulder: 0.85, lookAhead: 3, lookUp: 1.55 };
+// Fixed chase rig (world units): pulled back and raised so the camera looks
+// down at ~22 degrees — enough to read the arena around you while keeping
+// the horizon in view. Pitch never changes.
+const CAM = { back: 8.5, up: 6.2, shoulder: 0.45, lookAhead: 5, lookUp: 0.6, fov: 62 };
 
 const COLOR_CACHE = new Map();
 function cachedColor(hex) {
@@ -68,7 +69,7 @@ class Renderer3D {
     this.renderer.setClearColor("#000000");
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(66, RENDER_W / RENDER_H, 0.1, 400);
+    this.camera = new THREE.PerspectiveCamera(CAM.fov, RENDER_W / RENDER_H, 0.1, 400);
     this.anchorY = 0;
     this.menuAngle = 0;
 
@@ -85,9 +86,18 @@ class Renderer3D {
     this.buildInstanced();
   }
 
-  newWorld(seed) {
+  newWorld(seed, biome) {
     if (this.world) this.world.dispose();
-    this.world = new World(this.scene, seed);
+    this.world = new World(this.scene, seed, biome);
+    this.anchor = null; // snap the camera to the new spawn
+  }
+
+  // Match the internal resolution to the window's aspect ratio.
+  resize() {
+    this.renderer.setSize(RENDER_W, RENDER_H, false);
+    this.camera.aspect = RENDER_W / RENDER_H;
+    this.camera.updateProjectionMatrix();
+    PS1_SNAP.set(RENDER_W / 2, RENDER_H / 2);
   }
 
   buildInstanced() {
@@ -172,10 +182,11 @@ class Renderer3D {
     if (game.state === STATE.MENU) {
       // Slow cinematic orbit around the island for the title screen.
       this.menuAngle += dt * 0.05;
-      const r = 34;
+      const r = 30;
       const x = Math.cos(this.menuAngle) * r, z = Math.sin(this.menuAngle) * r;
-      this.camera.position.set(x, Math.max(terrainHeight(x, z), 0) + 9, z);
-      this.camera.lookAt(0, 2, 0);
+      // High enough to clear the ring of hills around the spawn clearing.
+      this.camera.position.set(x, Math.max(terrainHeight(x, z), 0) + 18, z);
+      this.camera.lookAt(0, 1, 0);
       return;
     }
     const p = game.player;
@@ -203,17 +214,6 @@ class Renderer3D {
     const target = P.clone().addScaledVector(fwd, CAM.lookAhead).addScaledVector(right, CAM.shoulder);
     target.y += CAM.lookUp;
     this.camera.lookAt(target);
-  }
-
-  // Where shots are headed, in overlay pixels. Computed relative to the rig,
-  // so it's the same point every frame.
-  projectAim(game) {
-    if (!this.anchor) return { x: CANVAS_W / 2, y: VIEW_TOP + VIEW_H / 2 };
-    const fwd = new THREE.Vector3(Math.cos(game.yaw), 0, Math.sin(game.yaw));
-    const P = this.anchor.clone();
-    P.y += BULLET_HEIGHT;
-    const aim = P.addScaledVector(fwd, 25).project(this.camera);
-    return { x: Math.round((aim.x + 1) / 2 * CANVAS_W), y: Math.round(VIEW_TOP + (1 - aim.y) / 2 * VIEW_H) };
   }
 
   // Screen-space box around an enemy's body (overlay pixels), for the
@@ -267,6 +267,16 @@ class Renderer3D {
     let model = this.models.get(entity);
     if (!model) {
       model = createModel(type);
+      if (type !== "player") {
+        // Subtle rim glow in the enemy's colour, and they cut through fog
+        // more than scenery does, so they read against any biome.
+        for (const m of model.mats) {
+          // Lightened toward white so a red enemy still pops on red ground.
+          m.uniforms.rimColor.value.set(entity.color).lerp(cachedColor("#ffffff"), 0.45);
+          m.uniforms.rimStrength.value = entity.isBoss ? 0.5 : 0.65;
+          m.uniforms.fogAmount.value = 0.45;
+        }
+      }
       this.scene.add(model.root);
       if (model.trailGroup) this.scene.add(model.trailGroup);
       this.models.set(entity, model);
@@ -564,7 +574,7 @@ class Renderer3D {
     const time = this.world.time;
     this.updateCamera(game, dt);
     this.updateOcclusion(game);
-    this.world.update(dt, this.camera);
+    this.world.update(dt, this.camera, this.anchor);
     this.syncCharacters(game, dt);
     this.syncLoot(game, time);
     this.syncGems(game, time);
