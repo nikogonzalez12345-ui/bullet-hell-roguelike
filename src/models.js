@@ -191,22 +191,34 @@ class CharacterModel {
     this.backpack.position.z = -0.26 - (k - 1) * 0.16;
   }
 
-  // state: { moving, rolling, rollAngle, time }
+  // state: { moving, rollProgress (0 = not rolling, 0..1 during a roll) }
   update(dt, state) {
     this.time += dt;
     const t = this.time;
     const s = this.spec;
-    const walk = state.moving ? Math.sin(t * 11) : 0;
+
+    // Walk amount blends in/out, and the stride phase only advances while
+    // walking, so starting/stopping never pops the legs.
+    this.walkAmt = lerp(this.walkAmt || 0, state.moving ? 1 : 0, 1 - Math.exp(-10 * dt));
+    this.phase = (this.phase || 0) + dt * 11 * this.walkAmt;
+    const walk = Math.sin(this.phase) * this.walkAmt;
+
+    // Roll: a tucked forward somersault, eased so it spins fastest mid-roll.
+    const u = state.rollProgress || 0;
+    const rolling = u > 0;
+    const tuck = rolling ? Math.sin(Math.PI * u) : 0;
+    this.tuckAmt = lerp(this.tuckAmt || 0, tuck, rolling ? 1 : 1 - Math.exp(-18 * dt));
+    const k = this.tuckAmt;
 
     if (this.legL) {
-      this.legL.rotation.x = walk * 0.7;
-      this.legR.rotation.x = -walk * 0.7;
+      this.legL.rotation.x = walk * 0.7 * (1 - k) - 1.4 * k;
+      this.legR.rotation.x = -walk * 0.7 * (1 - k) - 1.4 * k;
     }
 
     if (this.holdsGun) {
-      // Arms raised to hold the weapon forward.
-      this.armL.rotation.set(-1.25, 0, 0.35);
-      this.armR.rotation.set(-1.35, 0, -0.1);
+      // Arms raised to hold the weapon forward, pulled in while tucked.
+      this.armL.rotation.set(-1.25 - 0.5 * k, 0, 0.35 - 0.2 * k);
+      this.armR.rotation.set(-1.35 - 0.5 * k, 0, -0.1 + 0.1 * k);
     } else if (this.club) {
       this.armL.rotation.x = -walk * 0.6;
       this.armR.rotation.x = -0.4 + Math.sin(t * 6) * 0.5;
@@ -216,18 +228,14 @@ class CharacterModel {
       this.armR.rotation.set(walk * 0.6, 0, -0.1);
     }
 
-    let bodyY = 0.9 + (state.moving ? Math.abs(walk) * 0.05 : 0);
+    let bodyY = 0.9 + Math.abs(walk) * 0.05 - 0.35 * k;
     if (s.floating) bodyY += 0.35 + Math.sin(t * 2.5) * 0.15;
     if (s.hover) bodyY += s.hover + Math.sin(t * 1.8) * 0.2;
     this.body.position.y = bodyY;
 
-    if (state.rolling) {
-      this.body.rotation.x = state.rollAngle;
-      this.body.scale.y = 0.8;
-    } else {
-      this.body.rotation.x = 0;
-      this.body.scale.y = 1;
-    }
+    const eased = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2; // easeInOutQuad
+    this.body.rotation.x = rolling ? eased * Math.PI * 2 : 0;
+    this.body.scale.y = 1 - 0.2 * k;
 
     if (this.halo) this.halo.rotation.z = t * 2;
     if (this.tails) {

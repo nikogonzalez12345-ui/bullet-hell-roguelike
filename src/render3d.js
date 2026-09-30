@@ -28,6 +28,13 @@ function toWorld(simX, simY) {
 // Sim facing angle (direction cos a, sin a in sim x/y) -> model yaw (models face +Z).
 const facingToYaw = (a) => Math.PI / 2 - a;
 
+// Ease a model's yaw toward `target` (shortest way round) instead of snapping.
+function turnModel(model, target, rate, dt) {
+  if (model.yaw === undefined) model.yaw = target;
+  model.yaw += wrapAngle(target - model.yaw) * (1 - Math.exp(-rate * dt));
+  model.root.rotation.y = model.yaw;
+}
+
 class Renderer3D {
   constructor(canvas) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
@@ -104,10 +111,19 @@ class Renderer3D {
       return;
     }
     const p = game.player;
-    const P = toWorld(p.x, p.y);
-    // Smooth the height the rig rides on so small bumps don't jolt the view.
-    this.anchorY = lerp(this.anchorY, P.y, clamp(dt * 8, 0, 1));
-    P.y = this.anchorY;
+    const target0 = toWorld(p.x, p.y);
+    // The rig follows a smoothed anchor rather than the player directly, so
+    // rolls, knockbacks and bumpy ground glide instead of jolting the view.
+    if (!this.anchor || this.anchor.distanceTo(target0) > 8) {
+      this.anchor = target0.clone();
+    } else {
+      const kXZ = 1 - Math.exp(-14 * dt), kY = 1 - Math.exp(-7 * dt);
+      this.anchor.x = lerp(this.anchor.x, target0.x, kXZ);
+      this.anchor.z = lerp(this.anchor.z, target0.z, kXZ);
+      this.anchor.y = lerp(this.anchor.y, target0.y, kY);
+    }
+    this.anchorY = this.anchor.y;
+    const P = this.anchor.clone();
 
     const fwd = new THREE.Vector3(Math.cos(game.yaw), 0, Math.sin(game.yaw));
     const right = new THREE.Vector3(-Math.sin(game.yaw), 0, Math.cos(game.yaw));
@@ -124,9 +140,10 @@ class Renderer3D {
   // Where shots are headed, in overlay pixels. Computed relative to the rig,
   // so it's the same point every frame.
   projectAim(game) {
+    if (!this.anchor) return { x: CANVAS_W / 2, y: VIEW_TOP + VIEW_H / 2 };
     const fwd = new THREE.Vector3(Math.cos(game.yaw), 0, Math.sin(game.yaw));
-    const P = toWorld(game.player.x, game.player.y);
-    P.y = this.anchorY + BULLET_HEIGHT;
+    const P = this.anchor.clone();
+    P.y += BULLET_HEIGHT;
     const aim = P.addScaledVector(fwd, 25).project(this.camera);
     return { x: Math.round((aim.x + 1) / 2 * CANVAS_W), y: Math.round(VIEW_TOP + (1 - aim.y) / 2 * VIEW_H) };
   }
@@ -199,9 +216,8 @@ class Renderer3D {
       const model = this.modelFor(p, "player");
       model.root.position.copy(toWorld(p.x, p.y));
       const rolling = p.isRolling;
-      model.root.rotation.y = facingToYaw(rolling ? Math.atan2(p.rollDirY, p.rollDirX) : p.aimAngle);
-      const rollProgress = rolling ? 1 - p.rollTimer / p.rollDuration : 0;
-      model.update(dt, { moving: p.moving, rolling, rollAngle: rollProgress * Math.PI * 2 });
+      turnModel(model, facingToYaw(rolling ? Math.atan2(p.rollDirY, p.rollDirX) : p.aimAngle), 22, dt);
+      model.update(dt, { moving: p.moving, rollProgress: p.rollProgress });
       model.setBackpackSize(p.backpackSlots);
       const blink = p.iframeTimer > 0 && !rolling && Math.floor(p.iframeTimer * 20) % 2 === 0;
       model.root.visible = !blink;
@@ -212,8 +228,8 @@ class Renderer3D {
       if (!e.alive) continue;
       const model = this.modelFor(e, e.type);
       model.root.position.copy(toWorld(e.x, e.y));
-      model.root.rotation.y = facingToYaw(angleTo(e.x, e.y, p.x, p.y));
-      model.update(dt, { moving: true, rolling: false });
+      turnModel(model, facingToYaw(angleTo(e.x, e.y, p.x, p.y)), 8, dt);
+      model.update(dt, { moving: true });
       model.flash(e.hitFlash > 0 ? 0.85 : 0);
       this.addShadow(e.x, e.y, e.radius * WORLD_SCALE * 1.3);
     }

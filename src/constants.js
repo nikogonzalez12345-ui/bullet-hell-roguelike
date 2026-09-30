@@ -27,10 +27,11 @@ const PLAYER = {
   pierce: 0,
   multishot: 1,          // extra projectiles beyond the first
   spreadDeg: 8,          // angle between multishot projectiles
-  rollSpeed: 780,
-  rollDuration: 0.16,    // seconds
+  rollDistance: 115,     // sim units from the roll's burst (plus a little walk carry)
+  rollDuration: 0.3,     // seconds — long enough to read as a real tuck-and-roll
   rollCooldown: 1.1,     // seconds
-  rollIframes: 0.22,     // seconds of invulnerability after roll starts
+  rollIframes: 0.26,     // seconds of invulnerability after roll starts
+  accel: 22,             // how quickly movement reaches full speed (1/sec)
   hitIframes: 0.5,       // brief invulnerability after taking damage
   pickupRadius: 80,      // XP gems start flying to you inside this range
   regenPerSec: 0,

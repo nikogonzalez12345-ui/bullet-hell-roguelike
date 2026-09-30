@@ -15,6 +15,7 @@ class Game {
     this.ui = new GameUI(this);
     this.lockPointer = () => {};
     this.unlockPointer = () => {};
+    try { this.autoFire = localStorage.getItem("voidrunner.autofire") === "1"; } catch (_) { this.autoFire = false; }
 
     this.seed = newSeed();
     this.renderer.newWorld(this.seed);
@@ -116,6 +117,13 @@ class Game {
     }
   }
 
+  toggleAutoFire() {
+    if (this.state !== STATE.PLAYING) return;
+    this.autoFire = !this.autoFire;
+    try { localStorage.setItem("voidrunner.autofire", this.autoFire ? "1" : "0"); } catch (_) { /* private mode */ }
+    this.hud.toast(this.autoFire ? "AUTO-FIRE ON" : "AUTO-FIRE OFF", UI.gold);
+  }
+
   showBanner(text, duration, color) {
     this.bannerText = text;
     this.bannerTimer = this.bannerDuration = duration;
@@ -132,6 +140,16 @@ class Game {
 
     const p = this.player;
     p.update(dt, { ...input, yaw: this.yaw });
+    if (p.justRolled) {
+      p.justRolled = false;
+      const back = Math.atan2(-p.rollDirY, -p.rollDirX);
+      for (let i = 0; i < 10; i++) {
+        this.particles.push(new Particle(p.x, p.y, i % 2 ? "#b8a07a" : "#8a7a5a", {
+          angle: back + rand(-0.9, 0.9), speed: rand(40, 110), h: 0.15, vh: rand(0.5, 1.6),
+          life: rand(0.3, 0.55), size: rand(2, 3.5),
+        }));
+      }
+    }
     this.updateAim(dt);
     if (input.mouseDown) p.tryShoot(this.bullets, this.enemies);
 

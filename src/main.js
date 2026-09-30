@@ -13,9 +13,15 @@
   window.addEventListener("resize", fitToWindow);
   fitToWindow();
 
+  // Build tag (the ?v= on this script's URL) shown on the main menu, so it's
+  // obvious whether a browser is running the latest deploy.
+  const build = new URL(document.currentScript.src).searchParams.get("v") || "dev";
+  document.getElementById("buildTag").textContent = `BUILD ${build}`;
+
   const input = {
     up: false, down: false, left: false, right: false,
     mouseDown: false,
+    fireQueued: false, // latched on press so even a very quick click fires once
     dashPressed: false,
   };
 
@@ -69,6 +75,7 @@
     }
     if (e.code === "Escape" && game.state === STATE.INVENTORY) game.closeInventory(false);
     if (e.code === "KeyQ") game.usePotion();
+    if (e.code === "KeyF") game.toggleAutoFire();
     if (e.code === "KeyP") game.state === STATE.PAUSED ? game.resume() : game.pause();
   });
   window.addEventListener("keyup", (e) => {
@@ -88,7 +95,10 @@
     const locked = document.pointerLockElement === app;
     if (!locked && e.target !== view) return;
     if (!locked) game.lockPointer();
-    if (e.button === 0) input.mouseDown = true;
+    if (e.button === 0) {
+      input.mouseDown = true;
+      input.fireQueued = true;
+    }
     if (e.button === 2) input.dashPressed = true;
   });
   window.addEventListener("mouseup", (e) => {
@@ -108,7 +118,9 @@
   function loop(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    game.update(dt, { ...input, dashPressed: consumeDashPress() });
+    const firing = input.mouseDown || input.fireQueued || game.autoFire;
+    input.fireQueued = false;
+    game.update(dt, { ...input, mouseDown: firing, dashPressed: consumeDashPress() });
     game.render(dt);
     requestAnimationFrame(loop);
   }

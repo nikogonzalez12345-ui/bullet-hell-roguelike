@@ -118,6 +118,11 @@ class Hud {
       hudText(ctx, label, cx + 12, y + 77, 8, w.color);
       cx += cw + 6;
     }
+    if (game.autoFire) {
+      ctx.fillStyle = UI.gold;
+      ctx.fillRect(cx, y + 72, 66, 18);
+      hudText(ctx, "AUTO", cx + 33, y + 77, 8, UI.ink, "center");
+    }
   }
 
   drawClock(ctx, game) {

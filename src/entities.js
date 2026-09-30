@@ -50,8 +50,10 @@ class Player {
     this.pierce = PLAYER.pierce;
     this.multishot = PLAYER.multishot;
     this.spreadDeg = PLAYER.spreadDeg;
-    this.rollSpeed = PLAYER.rollSpeed;
     this.rollDuration = PLAYER.rollDuration;
+    this.vx = 0;
+    this.vy = 0;
+    this.justRolled = false;
 
     this.weapons = ["pistol"];
     this.weaponCooldowns = { pistol: 0 };
@@ -176,6 +178,12 @@ class Player {
     this.rollTimer = this.rollDuration;
     this.rollCooldownTimer = this.rollCooldown;
     this.iframeTimer = Math.max(this.iframeTimer, PLAYER.rollIframes);
+    this.justRolled = true;
+  }
+
+  // 0 at the start of a roll, 1 at the end.
+  get rollProgress() {
+    return this.isRolling ? 1 - this.rollTimer / this.rollDuration : 0;
   }
 
   update(dt, input) {
@@ -199,31 +207,44 @@ class Player {
     this.facing = input.yaw;
     this.aimAngle = this.facing; // Game may bend this toward a locked-on target
 
+    // WASD is relative to where the camera is looking.
+    const f = (input.up ? 1 : 0) - (input.down ? 1 : 0);
+    const s = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    const cy = Math.cos(input.yaw), sy = Math.sin(input.yaw);
+    let mx = cy * f - sy * s;
+    let my = sy * f + cy * s;
+    const wantsMove = f !== 0 || s !== 0;
+    if (wantsMove) {
+      const len = Math.hypot(mx, my);
+      mx /= len; my /= len;
+    }
+
     if (this.rollTimer > 0) {
+      // Burst out fast and ease to a stop: speed ~ (1-u)^2, which integrates
+      // to exactly rollDistance over rollDuration.
+      const u = this.rollProgress;
+      const burst = (3 * PLAYER.rollDistance / this.rollDuration) * (1 - u) * (1 - u);
+      // Blend into walking pace toward the end so the roll flows straight
+      // into running instead of stalling for a frame.
+      const carry = (wantsMove ? this.speed : this.speed * 0.4) * u;
+      const speed = Math.max(burst, carry);
+      this.vx = this.rollDirX * speed;
+      this.vy = this.rollDirY * speed;
       this.rollTimer -= dt;
-      this.x += this.rollDirX * this.rollSpeed * dt;
-      this.y += this.rollDirY * this.rollSpeed * dt;
-      this.moving = true;
     } else {
-      // WASD is relative to where the camera is looking.
-      const f = (input.up ? 1 : 0) - (input.down ? 1 : 0);
-      const s = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-      const cy = Math.cos(input.yaw), sy = Math.sin(input.yaw);
-      let mx = cy * f - sy * s;
-      let my = sy * f + cy * s;
-      this.moving = f !== 0 || s !== 0;
-      if (this.moving) {
-        const len = Math.hypot(mx, my);
-        mx /= len; my /= len;
-        this.x += mx * this.speed * dt;
-        this.y += my * this.speed * dt;
-      }
+      // Short acceleration ramp: responsive, but no instant start/stop.
+      const k = 1 - Math.exp(-PLAYER.accel * dt);
+      this.vx = lerp(this.vx, wantsMove ? mx * this.speed : 0, k);
+      this.vy = lerp(this.vy, wantsMove ? my * this.speed : 0, k);
       if (input.dashPressed && this.rollReady) {
-        let dx = mx, dy = my;
-        if (!this.moving) { dx = Math.cos(this.facing); dy = Math.sin(this.facing); }
+        const dx = wantsMove ? mx : Math.cos(this.facing);
+        const dy = wantsMove ? my : Math.sin(this.facing);
         this.startRoll(dx, dy);
       }
     }
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.moving = Math.hypot(this.vx, this.vy) > this.speed * 0.15;
 
     confineToArena(this);
   }
@@ -486,7 +507,7 @@ class Particle {
     this.size = opts.size || rand(2, 4);
     // Height above ground in world units, with a little upward pop + gravity.
     this.h = opts.h !== undefined ? opts.h : BULLET_HEIGHT;
-    this.vh = rand(1, 4.5);
+    this.vh = opts.vh !== undefined ? opts.vh : rand(1, 4.5);
   }
 
   update(dt) {
