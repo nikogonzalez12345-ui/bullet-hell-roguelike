@@ -9,26 +9,43 @@ html, body {
   overflow: hidden;
 }
 
+/* Fixed 960x600 design size, scaled to fit the window by main.js. */
 #app {
-  position: relative;
+  position: absolute;
+  left: 50%;
+  top: 50%;
   width: 960px;
   height: 600px;
-  margin: 24px auto;
-  box-shadow: 0 0 0 2px #2a2a45, 0 0 40px rgba(120, 90, 255, 0.25);
+  transform: translate(-50%, -50%);
+  background: #000;
+  box-shadow: 0 0 0 2px #2a2a45, 0 0 40px rgba(255, 120, 60, 0.2);
 }
 
-canvas#game {
-  display: block;
-  background: #0a0a14;
-  cursor: crosshair;
+/* 3D view renders at a tiny internal resolution and is upscaled with
+   nearest-neighbour sampling; the black bars above/below are the letterbox. */
+canvas#view {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  width: 960px;
+  height: 540px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  cursor: none;
+}
+
+canvas#overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 /* ---------- HUD ---------- */
 
 #hud {
   position: absolute;
-  top: 10px;
-  left: 10px;
+  top: 40px;
+  left: 12px;
   width: 260px;
   pointer-events: none;
   user-select: none;

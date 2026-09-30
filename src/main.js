@@ -1,44 +1,80 @@
 (function () {
-  const canvas = document.getElementById("game");
-  const ctx = canvas.getContext("2d");
-  const game = new Game(ctx);
+  const app = document.getElementById("app");
+  const view = document.getElementById("view");
+  const overlay = document.getElementById("overlay");
+  const renderer = new Renderer3D(view);
+  const game = new Game(renderer, overlay.getContext("2d"));
   window.game = game; // handy for debugging from the console
+
+  function fitToWindow() {
+    const s = clamp(Math.min((innerWidth - 24) / CANVAS_W, (innerHeight - 24) / CANVAS_H), 0.3, 2);
+    app.style.transform = `translate(-50%, -50%) scale(${s})`;
+  }
+  window.addEventListener("resize", fitToWindow);
+  fitToWindow();
 
   const input = {
     up: false, down: false, left: false, right: false,
-    mouseX: null, mouseY: null,
     mouseDown: false,
     dashPressed: false,
   };
 
+  // ---- Pointer lock: mouse-look needs it; losing it (Esc) pauses. --------
+  let hadLock = false;
+  game.lockPointer = () => {
+    if (document.pointerLockElement !== app && app.requestPointerLock) {
+      try {
+        const r = app.requestPointerLock();
+        if (r && r.catch) r.catch(() => {});
+      } catch (_) { /* unsupported (e.g. some iframes) — mousemove fallback below */ }
+    }
+  };
+  game.unlockPointer = () => {
+    hadLock = false;
+    if (document.pointerLockElement) document.exitPointerLock();
+  };
+  document.addEventListener("pointerlockchange", () => {
+    if (document.pointerLockElement === app) {
+      hadLock = true;
+    } else if (hadLock) {
+      hadLock = false;
+      input.mouseDown = false;
+      game.pause();
+    }
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    const locked = document.pointerLockElement === app;
+    // Without lock (unsupported browser), still turn while the cursor is over the game.
+    if (locked || app.contains(e.target)) game.look(e.movementX || 0, e.movementY || 0);
+  });
+
+  // ---- Keyboard ------------------------------------------------------------
   const KEY_MAP = {
-    w: "up", ArrowUp: "up",
-    s: "down", ArrowDown: "down",
-    a: "left", ArrowLeft: "left",
-    d: "right", ArrowRight: "right",
+    KeyW: "up", ArrowUp: "up",
+    KeyS: "down", ArrowDown: "down",
+    KeyA: "left", ArrowLeft: "left",
+    KeyD: "right", ArrowRight: "right",
   };
 
   window.addEventListener("keydown", (e) => {
-    const dir = KEY_MAP[e.key];
+    const dir = KEY_MAP[e.code];
     if (dir) { input[dir] = true; e.preventDefault(); }
     if (e.code === "Space") { input.dashPressed = true; e.preventDefault(); }
+    if (e.code === "KeyP") game.state === STATE.PAUSED ? game.resume() : game.pause();
   });
-
   window.addEventListener("keyup", (e) => {
-    const dir = KEY_MAP[e.key];
+    const dir = KEY_MAP[e.code];
     if (dir) { input[dir] = false; e.preventDefault(); }
     if (e.code === "Space") input.dashPressed = false;
   });
-
-  canvas.addEventListener("mousemove", (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    input.mouseX = (e.clientX - rect.left) * scaleX;
-    input.mouseY = (e.clientY - rect.top) * scaleY;
+  window.addEventListener("blur", () => {
+    input.up = input.down = input.left = input.right = input.mouseDown = false;
   });
 
-  canvas.addEventListener("mousedown", (e) => {
+  // ---- Mouse buttons ---------------------------------------------------------
+  view.addEventListener("mousedown", (e) => {
+    if (game.state === STATE.PLAYING && document.pointerLockElement !== app) game.lockPointer();
     if (e.button === 0) input.mouseDown = true;
     if (e.button === 2) input.dashPressed = true;
   });
@@ -46,9 +82,9 @@
     if (e.button === 0) input.mouseDown = false;
     if (e.button === 2) input.dashPressed = false;
   });
-  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  app.addEventListener("contextmenu", (e) => e.preventDefault());
 
-  // Dash is edge-triggered: consume the press so holding space doesn't chain-dash.
+  // Roll is edge-triggered: consume the press so holding space doesn't chain-roll.
   function consumeDashPress() {
     const pressed = input.dashPressed;
     input.dashPressed = false;
@@ -59,11 +95,8 @@
   function loop(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-
-    const frameInput = { ...input, dashPressed: consumeDashPress() };
-    game.update(dt, frameInput);
-    game.draw();
-
+    game.update(dt, { ...input, dashPressed: consumeDashPress() });
+    game.render(dt);
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);

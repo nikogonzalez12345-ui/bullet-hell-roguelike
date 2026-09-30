@@ -8,7 +8,8 @@
 </head>
 <body>
   <div id="app">
-    <canvas id="game" width="960" height="600"></canvas>
+    <canvas id="view"></canvas>
+    <canvas id="overlay" width="960" height="600"></canvas>
 
     <div id="hud">
       <div id="hpBarWrap"><div id="hpBar"></div></div>
@@ -22,13 +23,20 @@
 
     <div id="startScreen" class="overlay">
       <h1>VOID RUNNER</h1>
-      <p class="sub">a top-down bullet hell roguelike</p>
+      <p class="sub">a bullet hell roguelike</p>
       <div class="controls">
-        <p><b>Move</b> WASD / Arrow Keys</p>
-        <p><b>Aim &amp; Shoot</b> Mouse (auto-fire toward cursor)</p>
+        <p><b>Move</b> WASD</p>
+        <p><b>Look / Aim</b> Mouse</p>
+        <p><b>Shoot</b> Hold Left Click</p>
         <p><b>Dodge Roll</b> Space / Right Click</p>
+        <p><b>Pause</b> Esc</p>
       </div>
       <button id="startBtn">Start Run</button>
+    </div>
+
+    <div id="pauseScreen" class="overlay hidden">
+      <h2>Paused</h2>
+      <p class="sub">Click to resume</p>
     </div>
 
     <div id="upgradeScreen" class="overlay hidden">
@@ -44,15 +52,18 @@
     </div>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="src/constants.js"></script>
   <script src="src/utils.js"></script>
-  <script src="src/sprites.js"></script>
-  <script src="src/background.js"></script>
+  <script src="src/ps1.js"></script>
+  <script src="src/world.js"></script>
+  <script src="src/models.js"></script>
   <script src="src/weapons.js"></script>
   <script src="src/entities.js"></script>
   <script src="src/patterns.js"></script>
   <script src="src/spawner.js"></script>
   <script src="src/upgrades.js"></script>
+  <script src="src/render3d.js"></script>
   <script src="src/game.js"></script>
   <script src="src/main.js"></script>
 </body>

@@ -1,7 +1,20 @@
 // Global tunables. Kept in one place so balancing is a config edit, not a code hunt.
 
+// HUD overlay size (the 3D view sits inside it, letterboxed).
 const CANVAS_W = 960;
 const CANVAS_H = 600;
+const VIEW_TOP = 30;
+const VIEW_H = 540;
+
+// Gameplay still simulates on a flat 2D plane in "sim units" (the old pixel
+// scale, so all speed/range tuning carries over). WORLD_SCALE converts sim
+// units to Three.js world units: sim (x, y) -> world (x, z).
+const ARENA_RADIUS = 520;
+const WORLD_SCALE = 0.05;
+
+// Internal render resolution — the PS1 look depends on this being tiny.
+const RENDER_W = 320;
+const RENDER_H = 180;
 
 const PLAYER = {
   radius: 12,
@@ -18,7 +31,6 @@ const PLAYER = {
   rollDuration: 0.16,    // seconds
   rollCooldown: 1.1,     // seconds
   rollIframes: 0.22,     // seconds of invulnerability after roll starts
-  rollSpins: 2.5,        // full rotations per second while rolling
   hitIframes: 0.5,       // brief invulnerability after taking damage
   magnetRadius: 0,
   regenPerSec: 0,
@@ -49,19 +61,6 @@ const COLORS = {
   enemyBoss: "#ff2b4d",
   enemyBullet: "#ffd23b",
   xpGem: "#7dffb3",
-};
-
-// Character palette — used by sprites.js to render the procedural chibi
-// pixel-art figures. Kept separate from COLORS (which is mostly bullets/UI).
-const PALETTES = {
-  player:  { skin: "#ffd9b3", hair: "#7dd3ff", hairDark: "#4fa8d9", body: "#2b2f4a", bodyAccent: "#7dd3ff", eye: "#12141f" },
-  grunt:   { skin: "#e8b48a", hair: "#c0392b", hairDark: "#7a1f16", body: "#5a1f1f", bodyAccent: "#ff6b6b", eye: "#12141f" },
-  shooter: { skin: "#e8b48a", hair: "#ff9b3b", hairDark: "#b3611a", body: "#4a2e12", bodyAccent: "#ff9b3b", eye: "#12141f" },
-  sniper:  { skin: "#cdb8e0", hair: "#c46bff", hairDark: "#7a3bab", body: "#2a1a3a", bodyAccent: "#c46bff", eye: "#ffffff" },
-  orbiter: { skin: "#ffd9ef", hair: "#ff6bd0", hairDark: "#b33d92", body: "#3a1a30", bodyAccent: "#ff6bd0", eye: "#ffffff" },
-  boss_oni:     { skin: "#e0574a", hair: "#2a1a1a", hairDark: "#000000", body: "#3a0f0f", bodyAccent: "#ff2b4d", eye: "#ffe066", horn: "#f2e6c8" },
-  boss_kitsune: { skin: "#fff3e6", hair: "#ffffff", hairDark: "#e0b3d9", body: "#8a2a5a", bodyAccent: "#ff9bd6", eye: "#ff3b6b", tail: "#ffffff" },
-  boss_dragon:  { skin: "#2fb8a8", hair: "#0d3d38", hairDark: "#062421", body: "#0f4a44", bodyAccent: "#2fe6c8", eye: "#ffea3b", horn: "#d9f2ee" },
 };
 
 // Weapon archetypes the player can unlock through upgrades. Each fires

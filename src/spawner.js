@@ -2,7 +2,8 @@
 // dumping them all at once.
 
 class Spawner {
-  constructor() {
+  constructor(player) {
+    this.player = player;
     this.queue = [];
     this.spawnTimer = 0;
     this.spawnInterval = WAVE.baseSpawnInterval;
@@ -29,22 +30,23 @@ class Spawner {
     if (this.spawnTimer <= 0) {
       this.spawnTimer = this.spawnInterval;
       const type = this.queue.shift();
-      const { x, y } = randomEdgeSpawn();
+      const { x, y } = randomEdgeSpawn(this.player);
       const waveScale = 1 + (waveNum - 1) * 0.12;
       enemies.push(new Enemy(type, x, y, waveScale));
     }
   }
 }
 
-function randomEdgeSpawn() {
-  const margin = 40;
-  const side = randInt(0, 3);
-  switch (side) {
-    case 0: return { x: rand(margin, CANVAS_W - margin), y: -margin }; // top
-    case 1: return { x: CANVAS_W + margin, y: rand(margin, CANVAS_H - margin) }; // right
-    case 2: return { x: rand(margin, CANVAS_W - margin), y: CANVAS_H + margin }; // bottom
-    default: return { x: -margin, y: rand(margin, CANVAS_H - margin) }; // left
+// Enemies walk in from the island's edge, never right on top of the player.
+function randomEdgeSpawn(player) {
+  const r = ARENA_RADIUS - 20;
+  for (let tries = 0; tries < 8; tries++) {
+    const a = rand(0, Math.PI * 2);
+    const x = Math.cos(a) * r, y = Math.sin(a) * r;
+    if (!player || dist(x, y, player.x, player.y) > 320) return { x, y };
   }
+  const a = Math.atan2(-player.y, -player.x); // far side from the player
+  return { x: Math.cos(a) * r, y: Math.sin(a) * r };
 }
 
 function buildWaveQueue(waveNum) {

@@ -1,11 +1,30 @@
+// Keep a circular body inside the island arena and out of trees/rocks.
+function confineToArena(ent) {
+  const d = Math.hypot(ent.x, ent.y);
+  const max = ARENA_RADIUS - ent.radius;
+  if (d > max) {
+    ent.x *= max / d;
+    ent.y *= max / d;
+  }
+  for (const o of OBSTACLES) {
+    const dx = ent.x - o.x, dy = ent.y - o.y;
+    const dd = Math.hypot(dx, dy);
+    const min = o.r + ent.radius;
+    if (dd < min && dd > 0.001) {
+      ent.x = o.x + (dx / dd) * min;
+      ent.y = o.y + (dy / dd) * min;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Player
 // ---------------------------------------------------------------------------
 
 class Player {
   constructor() {
-    this.x = CANVAS_W / 2;
-    this.y = CANVAS_H / 2;
+    this.x = 0;
+    this.y = 120;
     this.radius = PLAYER.radius;
 
     // Stats — copied from constants so upgrades can mutate freely per-run.
@@ -32,8 +51,6 @@ class Player {
     this.rollCooldownTimer = 0;
     this.rollDirX = 0;
     this.rollDirY = 0;
-    this.rollRotation = 0;
-    this.trail = [];         // afterimage positions while rolling
     this.iframeTimer = 0;    // >0 = invulnerable
     this.regenAccum = 0;
 
@@ -73,7 +90,6 @@ class Player {
     this.rollDirY = dirY / len;
     this.rollTimer = this.rollDuration;
     this.rollCooldownTimer = this.rollCooldown;
-    this.rollRotation = 0;
     this.iframeTimer = Math.max(this.iframeTimer, PLAYER.rollIframes);
   }
 
@@ -96,22 +112,21 @@ class Player {
       }
     }
 
+    this.facing = input.yaw;
+
     if (this.rollTimer > 0) {
       this.rollTimer -= dt;
       this.x += this.rollDirX * this.rollSpeed * dt;
       this.y += this.rollDirY * this.rollSpeed * dt;
-      this.rollRotation += dt * Math.PI * 2 * PLAYER.rollSpins * (this.rollDirX < 0 ? -1 : 1);
-      this.trail.push({ x: this.x, y: this.y, rot: this.rollRotation, flip: this.rollDirX < 0 });
-      if (this.trail.length > 6) this.trail.shift();
       this.moving = true;
     } else {
-      this.trail.length = 0;
-      let mx = 0, my = 0;
-      if (input.up) my -= 1;
-      if (input.down) my += 1;
-      if (input.left) mx -= 1;
-      if (input.right) mx += 1;
-      this.moving = mx !== 0 || my !== 0;
+      // WASD is relative to where the camera is looking.
+      const f = (input.up ? 1 : 0) - (input.down ? 1 : 0);
+      const s = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+      const cy = Math.cos(input.yaw), sy = Math.sin(input.yaw);
+      let mx = cy * f - sy * s;
+      let my = sy * f + cy * s;
+      this.moving = f !== 0 || s !== 0;
       if (this.moving) {
         const len = Math.hypot(mx, my);
         mx /= len; my /= len;
@@ -126,12 +141,7 @@ class Player {
       }
     }
 
-    this.x = clamp(this.x, this.radius, CANVAS_W - this.radius);
-    this.y = clamp(this.y, this.radius, CANVAS_H - this.radius);
-
-    if (input.mouseX !== null) {
-      this.facing = angleTo(this.x, this.y, input.mouseX, input.mouseY);
-    }
+    confineToArena(this);
   }
 
   tryShoot(bullets, enemies) {
@@ -141,48 +151,6 @@ class Player {
       this.weaponCooldowns[id] = 1 / (this.fireRate * def.fireRateMul);
       fireWeapon(id, this, bullets, enemies);
     }
-  }
-
-  draw(ctx) {
-    ctx.save();
-    const flashing = this.iframeTimer > 0 && !this.isRolling && Math.floor(this.iframeTimer * 20) % 2 === 0;
-    ctx.globalAlpha = flashing ? 0.4 : 1;
-
-    // Aim indicator
-    ctx.strokeStyle = "rgba(125, 211, 255, 0.35)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(this.x + Math.cos(this.facing) * this.radius, this.y + Math.sin(this.facing) * this.radius);
-    ctx.lineTo(this.x + Math.cos(this.facing) * (this.radius + 18), this.y + Math.sin(this.facing) * (this.radius + 18));
-    ctx.stroke();
-
-    // Afterimage trail while dodge-rolling
-    if (this.isRolling) {
-      const sprite = getCharacterSprite("player");
-      for (let i = 0; i < this.trail.length; i++) {
-        const t = this.trail[i];
-        ctx.save();
-        ctx.globalAlpha = (i / this.trail.length) * 0.35;
-        drawSprite(ctx, sprite, t.x, t.y, this.radius * 2.6, this.radius * 2.6, t.flip, t.rot);
-        ctx.restore();
-      }
-    }
-
-    const flip = Math.abs(this.facing) > Math.PI / 2;
-    ctx.shadowColor = COLORS.player;
-    ctx.shadowBlur = this.isRolling ? 22 : 10;
-    const bob = this.moving && !this.isRolling ? Math.sin(this.animTime * 10) * 1.2 : 0;
-    drawSprite(
-      ctx,
-      getCharacterSprite("player"),
-      this.x,
-      this.y + bob,
-      this.radius * 2.6,
-      this.radius * 2.6,
-      flip,
-      this.isRolling ? this.rollRotation : 0
-    );
-    ctx.restore();
   }
 }
 
@@ -233,20 +201,14 @@ class Bullet {
     this.y += this.vy * dt;
     this.life -= dt;
     if (this.life <= 0) this.dead = true;
-    if (this.x < -40 || this.x > CANVAS_W + 40 || this.y < -40 || this.y > CANVAS_H + 40) {
-      this.dead = true;
+    if (Math.hypot(this.x, this.y) > ARENA_RADIUS + 200) this.dead = true;
+    // Trees and rocks inside the arena are cover — they stop bullets.
+    for (const o of OBSTACLES) {
+      if (circleHit(this.x, this.y, this.radius, o.x, o.y, o.r)) {
+        this.dead = true;
+        break;
+      }
     }
-  }
-
-  draw(ctx) {
-    ctx.save();
-    ctx.fillStyle = this.color;
-    ctx.shadowColor = this.color;
-    ctx.shadowBlur = 8;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
   }
 }
 
@@ -389,37 +351,7 @@ class Enemy {
       }
     }
 
-    this.x = clamp(this.x, this.radius, CANVAS_W - this.radius);
-    this.y = clamp(this.y, this.radius, CANVAS_H - this.radius);
-  }
-
-  draw(ctx) {
-    ctx.save();
-    const bob = Math.sin(this.animTime * 6) * 1;
-
-    if (this.hitFlash > 0) {
-      ctx.filter = "brightness(2.4) saturate(0)";
-    }
-
-    const sprite = this.isBoss ? getBossSprite(this.type) : getCharacterSprite(this.type);
-    const drawSize = this.isBoss ? this.radius * 2.5 : this.radius * 2.6;
-    ctx.shadowColor = this.color;
-    ctx.shadowBlur = this.isBoss ? 22 : 8;
-    drawSprite(ctx, sprite, this.x, this.y + bob, drawSize, drawSize, false, 0);
-    ctx.filter = "none";
-
-    // HP bar for tougher enemies (bosses get a bigger, name-less bar here —
-    // the name + full-width bar is drawn separately by Game as a HUD overlay)
-    if (!this.isBoss && this.maxHp > 30) {
-      const w = this.radius * 2;
-      const pct = clamp(this.hp / this.maxHp, 0, 1);
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "rgba(0,0,0,0.5)";
-      ctx.fillRect(this.x - w / 2, this.y - this.radius - 10, w, 4);
-      ctx.fillStyle = "#ff4d7e";
-      ctx.fillRect(this.x - w / 2, this.y - this.radius - 10, w * pct, 4);
-    }
-    ctx.restore();
+    confineToArena(this);
   }
 }
 
@@ -439,6 +371,9 @@ class Particle {
     this.life = opts.life || rand(0.25, 0.5);
     this.maxLife = this.life;
     this.size = opts.size || rand(2, 4);
+    // Height above ground in world units, with a little upward pop + gravity.
+    this.h = opts.h !== undefined ? opts.h : BULLET_HEIGHT;
+    this.vh = rand(1, 4.5);
   }
 
   update(dt) {
@@ -446,18 +381,10 @@ class Particle {
     this.y += this.vy * dt;
     this.vx *= 0.92;
     this.vy *= 0.92;
+    this.vh -= 12 * dt;
+    this.h = Math.max(0.05, this.h + this.vh * dt);
     this.life -= dt;
   }
 
   get dead() { return this.life <= 0; }
-
-  draw(ctx) {
-    ctx.save();
-    ctx.globalAlpha = clamp(this.life / this.maxLife, 0, 1);
-    ctx.fillStyle = this.color;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
 }
