@@ -81,9 +81,13 @@
   });
 
   // ---- Mouse buttons ---------------------------------------------------------
-  view.addEventListener("mousedown", (e) => {
+  // Listen on #app, not the canvas: while the pointer is locked, the browser
+  // delivers every mouse event to the lock target (#app) instead.
+  app.addEventListener("mousedown", (e) => {
     if (game.state !== STATE.PLAYING) return;
-    if (document.pointerLockElement !== app) game.lockPointer();
+    const locked = document.pointerLockElement === app;
+    if (!locked && e.target !== view) return;
+    if (!locked) game.lockPointer();
     if (e.button === 0) input.mouseDown = true;
     if (e.button === 2) input.dashPressed = true;
   });

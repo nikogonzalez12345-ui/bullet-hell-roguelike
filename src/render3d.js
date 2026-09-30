@@ -131,6 +131,49 @@ class Renderer3D {
     return { x: Math.round((aim.x + 1) / 2 * CANVAS_W), y: Math.round(VIEW_TOP + (1 - aim.y) / 2 * VIEW_H) };
   }
 
+  // Screen-space box around an enemy's body (overlay pixels), for the
+  // lock-on brackets. Null when it's behind the camera.
+  projectEnemy(e) {
+    const model = this.models.get(e);
+    if (!model) return null;
+    const P = new THREE.Vector3();
+    let halfW, halfH;
+    if (model.head && e.type === "boss_dragon") {
+      model.head.getWorldPosition(P);
+      halfW = 1.1;
+      halfH = 0.9;
+    } else {
+      const s = model.root.scale.x;
+      P.copy(model.root.position);
+      P.y += 1.1 * s;
+      halfW = 0.45 * s;
+      halfH = 1.05 * s;
+    }
+    const d = P.distanceTo(this.camera.position);
+    P.project(this.camera);
+    if (P.z > 1) return null;
+    const ppu = (VIEW_H / 2) / (Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * d);
+    return {
+      x: Math.round((P.x + 1) / 2 * CANVAS_W),
+      y: Math.round(VIEW_TOP + (1 - P.y) / 2 * VIEW_H),
+      w: Math.max(9, Math.round(halfW * ppu)),
+      h: Math.max(12, Math.round(halfH * ppu)),
+    };
+  }
+
+  // Trees/rocks near the camera->player line dither away (see ps1.js).
+  updateOcclusion(game) {
+    if (game.state === STATE.MENU) {
+      OCCLUSION.fadeR.value = 0;
+      return;
+    }
+    const P = toWorld(game.player.x, game.player.y);
+    P.y = this.anchorY + 1.2;
+    OCCLUSION.fadeA.value.copy(this.camera.position);
+    OCCLUSION.fadeB.value.copy(P);
+    OCCLUSION.fadeR.value = 2.0;
+  }
+
   // ---------------------------------------------------------------------
   // Characters
   // ---------------------------------------------------------------------
@@ -156,7 +199,7 @@ class Renderer3D {
       const model = this.modelFor(p, "player");
       model.root.position.copy(toWorld(p.x, p.y));
       const rolling = p.isRolling;
-      model.root.rotation.y = facingToYaw(rolling ? Math.atan2(p.rollDirY, p.rollDirX) : p.facing);
+      model.root.rotation.y = facingToYaw(rolling ? Math.atan2(p.rollDirY, p.rollDirX) : p.aimAngle);
       const rollProgress = rolling ? 1 - p.rollTimer / p.rollDuration : 0;
       model.update(dt, { moving: p.moving, rolling, rollAngle: rollProgress * Math.PI * 2 });
       model.setBackpackSize(p.backpackSlots);
@@ -323,6 +366,7 @@ class Renderer3D {
     if (!this.world) return;
     const time = this.world.time;
     this.updateCamera(game, dt);
+    this.updateOcclusion(game);
     this.world.update(dt, this.camera);
     this.syncCharacters(game, dt);
     this.syncLoot(game, time);

@@ -11,6 +11,15 @@ const SUN_DIR = new THREE.Vector3(0, 0.28, -1).normalize();
 const FILL_DIR = new THREE.Vector3(0.35, 0.6, 1).normalize();
 const FOG_COLOR = new THREE.Color("#5a2320");
 
+// Shared by every scenery material that opts in with `occlusionFade`: props
+// within fadeR of the camera->player line are screen-door dithered away,
+// the way N64/PS1 games dissolved walls between the camera and the hero.
+const OCCLUSION = {
+  fadeA: { value: new THREE.Vector3() },
+  fadeB: { value: new THREE.Vector3() },
+  fadeR: { value: 0 },
+};
+
 const PS1_DITHER_GLSL = `
   float ps1B2(vec2 a) { return mod(a.x * 2.0 + a.y * 3.0, 4.0); }
   float ps1Bayer(vec2 p) {
@@ -35,6 +44,9 @@ const PS1_VERTEX = `
   varying vec3 vLight;
   varying vec3 vTint;
   varying float vFogDepth;
+  #ifdef OCCLUSION_FADE
+    varying vec3 vWorld;
+  #endif
 
   void main() {
     vec4 local = vec4(position, 1.0);
@@ -45,6 +57,9 @@ const PS1_VERTEX = `
     #endif
     vec4 mv = modelViewMatrix * local;
     vec4 clip = projectionMatrix * mv;
+    #ifdef OCCLUSION_FADE
+      vWorld = (modelMatrix * local).xyz;
+    #endif
 
     // Snap to a coarse grid in screen space -> the classic PS1 vertex wobble.
     if (clip.w > 0.0) {
@@ -91,9 +106,24 @@ const PS1_FRAGMENT = `
   varying vec3 vLight;
   varying vec3 vTint;
   varying float vFogDepth;
+  #ifdef OCCLUSION_FADE
+    uniform vec3 fadeA;
+    uniform vec3 fadeB;
+    uniform float fadeR;
+    varying vec3 vWorld;
+  #endif
   ${PS1_DITHER_GLSL}
 
   void main() {
+    #ifdef OCCLUSION_FADE
+      if (fadeR > 0.0) {
+        vec3 ab = fadeB - fadeA;
+        float t = clamp(dot(vWorld - fadeA, ab) / dot(ab, ab), 0.0, 1.0);
+        float d = length(vWorld - (fadeA + ab * t));
+        float fade = 1.0 - smoothstep(fadeR * 0.5, fadeR, d);
+        if (ps1Bayer(gl_FragCoord.xy) < fade * 0.8) discard;
+      }
+    #endif
     vec3 c = baseColor * vTint;
     if (useMap > 0.5) {
       vec4 t = texture2D(map, vUvw.xy / vUvw.z);
@@ -127,9 +157,13 @@ function ps1Material(opts = {}) {
       fogColor: { value: FOG_COLOR },
       fogNear: { value: opts.fog === false ? 1e6 : 18 },
       fogFar: { value: opts.fog === false ? 2e6 : 70 },
+      fadeA: OCCLUSION.fadeA,
+      fadeB: OCCLUSION.fadeB,
+      fadeR: OCCLUSION.fadeR,
     },
     vertexShader: PS1_VERTEX,
     fragmentShader: PS1_FRAGMENT,
+    defines: opts.occlusionFade ? { OCCLUSION_FADE: "" } : {},
     vertexColors: !!opts.vertexColors,
     transparent: !!opts.transparent,
     depthWrite: opts.depthWrite !== undefined ? opts.depthWrite : true,

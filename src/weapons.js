@@ -17,8 +17,8 @@ function findNearestEnemy(x, y, enemies) {
 
 function fireWeapon(weaponId, player, bullets, enemies) {
   const def = WEAPONS[weaponId];
-  const originX = player.x + Math.cos(player.facing) * (player.radius + 6);
-  const originY = player.y + Math.sin(player.facing) * (player.radius + 6);
+  const originX = player.x + Math.cos(player.aimAngle) * (player.radius + 6);
+  const originY = player.y + Math.sin(player.aimAngle) * (player.radius + 6);
 
   const damage = player.damage * def.damageMul;
   const speed = player.bulletSpeed * (def.speedMul || 1);
@@ -31,7 +31,7 @@ function fireWeapon(weaponId, player, bullets, enemies) {
       const spread = def.spreadDeg * (Math.PI / 180);
       for (let i = 0; i < count; i++) {
         const t = count === 1 ? 0 : i / (count - 1) - 0.5;
-        const angle = player.facing + t * spread + rand(-0.03, 0.03);
+        const angle = player.aimAngle + t * spread + rand(-0.03, 0.03);
         bullets.push(new Bullet({
           x: originX, y: originY,
           vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
@@ -45,10 +45,10 @@ function fireWeapon(weaponId, player, bullets, enemies) {
     case "smg": {
       const count = player.multishot;
       const spread = (count - 1) * player.spreadDeg;
-      const start = player.facing - (spread / 2) * (Math.PI / 180);
+      const start = player.aimAngle - (spread / 2) * (Math.PI / 180);
       for (let i = 0; i < count; i++) {
         const jitter = rand(-def.jitterDeg, def.jitterDeg) * (Math.PI / 180);
-        const angle = (count === 1 ? player.facing : start + i * player.spreadDeg * (Math.PI / 180)) + jitter;
+        const angle = (count === 1 ? player.aimAngle : start + i * player.spreadDeg * (Math.PI / 180)) + jitter;
         bullets.push(new Bullet({
           x: originX, y: originY,
           vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
@@ -61,9 +61,9 @@ function fireWeapon(weaponId, player, bullets, enemies) {
     case "laser": {
       const count = player.multishot;
       const spread = (count - 1) * player.spreadDeg;
-      const start = player.facing - (spread / 2) * (Math.PI / 180);
+      const start = player.aimAngle - (spread / 2) * (Math.PI / 180);
       for (let i = 0; i < count; i++) {
-        const angle = count === 1 ? player.facing : start + i * player.spreadDeg * (Math.PI / 180);
+        const angle = count === 1 ? player.aimAngle : start + i * player.spreadDeg * (Math.PI / 180);
         bullets.push(new Bullet({
           x: originX, y: originY,
           vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
@@ -76,7 +76,7 @@ function fireWeapon(weaponId, player, bullets, enemies) {
 
     case "missile": {
       const target = findNearestEnemy(player.x, player.y, enemies);
-      const angle = target ? angleTo(player.x, player.y, target.x, target.y) : player.facing;
+      const angle = target ? angleTo(player.x, player.y, target.x, target.y) : player.aimAngle;
       bullets.push(new Bullet({
         x: originX, y: originY,
         vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
@@ -89,9 +89,9 @@ function fireWeapon(weaponId, player, bullets, enemies) {
     default: { // pistol
       const count = player.multishot;
       const spread = (count - 1) * player.spreadDeg;
-      const start = player.facing - (spread / 2) * (Math.PI / 180);
+      const start = player.aimAngle - (spread / 2) * (Math.PI / 180);
       for (let i = 0; i < count; i++) {
-        const angle = count === 1 ? player.facing : start + i * player.spreadDeg * (Math.PI / 180);
+        const angle = count === 1 ? player.aimAngle : start + i * player.spreadDeg * (Math.PI / 180);
         bullets.push(new Bullet({
           x: originX, y: originY,
           vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,

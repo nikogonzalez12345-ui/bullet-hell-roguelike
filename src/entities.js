@@ -73,6 +73,7 @@ class Player {
 
     this.alive = true;
     this.facing = 0;
+    this.aimAngle = 0;
     this.moving = false;
   }
 
@@ -196,6 +197,7 @@ class Player {
     }
 
     this.facing = input.yaw;
+    this.aimAngle = this.facing; // Game may bend this toward a locked-on target
 
     if (this.rollTimer > 0) {
       this.rollTimer -= dt;

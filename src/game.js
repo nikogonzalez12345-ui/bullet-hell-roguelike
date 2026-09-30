@@ -41,6 +41,9 @@ class Game {
     this.bannerColor = UI.gold;
     this.damageFlash = 0;
     this.fullWarnCooldown = 0;
+    this.aimTarget = null;
+    this.aimBlocked = false;
+    this.lockTime = 0;
     this.yaw = -Math.PI / 2; // facing the sunset
   }
 
@@ -129,6 +132,7 @@ class Game {
 
     const p = this.player;
     p.update(dt, { ...input, yaw: this.yaw });
+    this.updateAim(dt);
     if (input.mouseDown) p.tryShoot(this.bullets, this.enemies);
 
     this.director.update(dt);
@@ -147,6 +151,58 @@ class Game {
 
     if (!p.alive) return this.onGameOver();
     if (this.pendingLevels > 0) this.openLevelUp();
+  }
+
+  // Soft lock-on. Hills put enemies above/below the fixed crosshair, so
+  // instead of relying on the camera's view angle we pick the enemy nearest
+  // the aim line (on the ground plane) that we have a clear shot at, and
+  // bend shots onto it. The HUD draws lock brackets around it.
+  updateAim(dt) {
+    const p = this.player;
+    const prev = this.aimTarget;
+    let best = null, bestScore = Infinity;
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const d = dist(p.x, p.y, e.x, e.y);
+      if (d > AIM.range || d < 1) continue;
+      const diff = Math.abs(wrapAngle(angleTo(p.x, p.y, e.x, e.y) - p.facing));
+      const cone = AIM.cone + Math.atan(e.radius / d) + (e.isBoss ? 0.05 : 0);
+      if (diff > cone) continue;
+      // Prefer whatever is closest to the crosshair; stick with the current lock.
+      let score = diff / cone + (d / AIM.range) * 0.5;
+      if (e === prev) score *= 0.6;
+      if (score < bestScore && this.clearShot(p.x, p.y, e.x, e.y)) {
+        best = e;
+        bestScore = score;
+      }
+    }
+    if (best !== prev) this.lockTime = 0;
+    this.lockTime += dt;
+    this.aimTarget = best;
+    if (best) {
+      p.aimAngle = angleTo(p.x, p.y, best.x, best.y);
+      this.aimBlocked = false;
+    } else {
+      const ex = p.x + Math.cos(p.facing) * AIM.blockCheck;
+      const ey = p.y + Math.sin(p.facing) * AIM.blockCheck;
+      this.aimBlocked = !this.clearShot(p.x, p.y, ex, ey);
+    }
+  }
+
+  // True if no tree/rock sits on the straight line between two points.
+  clearShot(x1, y1, x2, y2) {
+    const len = dist(x1, y1, x2, y2);
+    if (len < 1) return true;
+    const checked = new Set();
+    for (let s = 0; ; s += OB_CELL / 2) {
+      const t = Math.min(1, s / len);
+      for (const o of obstaclesNear(lerp(x1, x2, t), lerp(y1, y2, t))) {
+        if (checked.has(o)) continue;
+        checked.add(o);
+        if (pointSegDist(o.x, o.y, x1, y1, x2, y2) < o.r + 3) return false;
+      }
+      if (t >= 1) return true;
+    }
   }
 
   handleCollisions() {

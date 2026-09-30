@@ -6,6 +6,15 @@ function dist2(ax, ay, bx, by) { const dx = ax - bx, dy = ay - by; return dx * d
 function dist(ax, ay, bx, by) { return Math.sqrt(dist2(ax, ay, bx, by)); }
 function lerp(a, b, t) { return a + (b - a) * t; }
 function angleTo(ax, ay, bx, by) { return Math.atan2(by - ay, bx - ax); }
+function wrapAngle(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
+
+// Distance from point (px, py) to the segment (ax, ay)-(bx, by).
+function pointSegDist(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 ? clamp(((px - ax) * dx + (py - ay) * dy) / len2, 0, 1) : 0;
+  return dist(px, py, ax + dx * t, ay + dy * t);
+}
 
 // Weighted pick: items = [{weight, ...}]
 function weightedPick(items) {

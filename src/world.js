@@ -127,11 +127,11 @@ class World {
     clearObstacles();
 
     this.mats = {
-      bark: ps1Material({ map: TEX.bark, uvScale: new THREE.Vector2(2, 2) }),
-      leaves: ps1Material({ map: TEX.leaves, uvScale: new THREE.Vector2(3, 3) }),
-      autumn: ps1Material({ map: TEX.leavesAutumn, uvScale: new THREE.Vector2(3, 3) }),
-      pine: ps1Material({ map: TEX.pine, uvScale: new THREE.Vector2(2, 2) }),
-      rock: ps1Material({ map: TEX.rock, uvScale: new THREE.Vector2(1.5, 1.5) }),
+      bark: ps1Material({ map: TEX.bark, uvScale: new THREE.Vector2(2, 2), occlusionFade: true }),
+      leaves: ps1Material({ map: TEX.leaves, uvScale: new THREE.Vector2(3, 3), occlusionFade: true }),
+      autumn: ps1Material({ map: TEX.leavesAutumn, uvScale: new THREE.Vector2(3, 3), occlusionFade: true }),
+      pine: ps1Material({ map: TEX.pine, uvScale: new THREE.Vector2(2, 2), occlusionFade: true }),
+      rock: ps1Material({ map: TEX.rock, uvScale: new THREE.Vector2(1.5, 1.5), occlusionFade: true }),
       grass: ps1Material({ map: TEX.grassTuft, doubleSide: true }),
       flower: ps1Material({ map: TEX.flower, doubleSide: true }),
     };

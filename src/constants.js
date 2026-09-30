@@ -77,6 +77,14 @@ const RARITIES = [
   { id: "legendary", name: "Legendary", color: "#ff8a1e", weight: 1,  affixes: 4, mult: 2.0 },
 ];
 
+// Soft lock-on: enemies within `cone` radians of the aim line (plus their own
+// angular size) with a clear line of fire get targeted.
+const AIM = {
+  cone: 0.12,
+  range: 760,
+  blockCheck: 220, // how far ahead to look for a tree/rock in the line of fire
+};
+
 const LOOT = {
   itemDropChance: 0.045,
   potionDropChance: 0.03,

@@ -83,7 +83,11 @@ class Hud {
     this.drawXp(ctx, game);
     this.drawHints(ctx, game);
     this.drawMessages(ctx, dt);
-    if (game.state === STATE.PLAYING) this.drawCrosshair(ctx, game.renderer.projectAim(game));
+    if (game.state === STATE.PLAYING) {
+      this.drawLock(ctx, game);
+      const mode = game.aimTarget ? "lock" : game.aimBlocked ? "blocked" : "free";
+      this.drawCrosshair(ctx, game.renderer.projectAim(game), mode);
+    }
     this.drawBanner(ctx, game);
   }
 
@@ -171,19 +175,70 @@ class Hud {
     }
   }
 
-  drawCrosshair(ctx, { x, y }) {
+  // Crosshair: cream when free, gold when locked on, red when a tree/rock
+  // is in the line of fire.
+  drawCrosshair(ctx, { x, y }, mode) {
+    const col = mode === "lock" ? UI.gold : mode === "blocked" ? UI.hp.fill : UI.cream;
     const bar = (bx, by, w, h) => {
       ctx.fillStyle = UI.ink;
       ctx.fillRect(bx - 1, by - 1, w + 2, h + 2);
-      ctx.fillStyle = UI.cream;
+      ctx.fillStyle = col;
       ctx.fillRect(bx, by, w, h);
     };
-    bar(x - 11, y - 1, 6, 3);
-    bar(x + 5, y - 1, 6, 3);
-    bar(x - 1, y - 11, 3, 6);
-    bar(x - 1, y + 5, 3, 6);
-    ctx.fillStyle = UI.hp.light;
-    ctx.fillRect(x - 1, y - 1, 3, 3);
+    const gap = mode === "lock" ? 3 : 5;
+    bar(x - gap - 6, y - 1, 6, 3);
+    bar(x + gap, y - 1, 6, 3);
+    bar(x - 1, y - gap - 6, 3, 6);
+    bar(x - 1, y + gap, 3, 6);
+    if (mode === "blocked") {
+      ctx.fillStyle = UI.hp.fill;
+      for (let i = -2; i <= 2; i++) {
+        ctx.fillRect(x + i * 2 - 1, y + i * 2 - 1, 2, 2);
+        ctx.fillRect(x + i * 2 - 1, y - i * 2 - 1, 2, 2);
+      }
+    } else {
+      ctx.fillStyle = mode === "lock" ? UI.gold : UI.hp.light;
+      ctx.fillRect(x - 1, y - 1, 3, 3);
+    }
+  }
+
+  // Pixel corner brackets around the locked-on enemy. They snap in from
+  // wide to tight when a new target is acquired, like a PS1 lock-on.
+  drawLock(ctx, game) {
+    const e = game.aimTarget;
+    if (!e || !e.alive) return;
+    const box = game.renderer.projectEnemy(e);
+    if (!box) return;
+    const snap = 1 + Math.max(0, 1 - game.lockTime / 0.15) * 0.7;
+    const w = Math.round(box.w * snap) + 4;
+    const h = Math.round(box.h * snap) + 4;
+    const arm = Math.max(6, Math.round(Math.min(w, h) * 0.45));
+    const rect = (x, y, rw, rh, col) => {
+      ctx.fillStyle = col;
+      ctx.fillRect(Math.min(x, x + rw), Math.min(y, y + rh), Math.abs(rw), Math.abs(rh));
+    };
+    const corner = (cx, cy, sx, sy) => {
+      rect(cx - sx, cy - sy, sx * (arm + 2), sy * 5, UI.ink);
+      rect(cx - sx, cy - sy, sx * 5, sy * (arm + 2), UI.ink);
+      rect(cx, cy, sx * arm, sy * 3, UI.gold);
+      rect(cx, cy, sx * 3, sy * arm, UI.gold);
+    };
+    corner(box.x - w, box.y - h, 1, 1);
+    corner(box.x + w, box.y - h, -1, 1);
+    corner(box.x - w, box.y + h, 1, -1);
+    corner(box.x + w, box.y + h, -1, -1);
+
+    // Mini HP bar over regular enemies (bosses have the big one up top).
+    if (!e.isBoss) {
+      const bw = Math.max(24, w * 2 - 6);
+      const bx = box.x - Math.floor(bw / 2), by = box.y - h - 12;
+      ctx.fillStyle = UI.ink;
+      ctx.fillRect(bx - 2, by - 2, bw + 4, 8);
+      ctx.fillStyle = UI.hp.dark;
+      ctx.fillRect(bx, by, bw, 4);
+      ctx.fillStyle = UI.hp.light;
+      ctx.fillRect(bx, by, Math.round(bw * clamp(e.hp / e.maxHp, 0, 1)), 4);
+    }
   }
 
   // Player-relative radar, forward = up — the way to see threats behind you.
