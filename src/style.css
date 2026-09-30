@@ -1,0 +1,187 @@
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #05050a;
+  color: #e8e8f0;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  overflow: hidden;
+}
+
+#app {
+  position: relative;
+  width: 960px;
+  height: 600px;
+  margin: 24px auto;
+  box-shadow: 0 0 0 2px #2a2a45, 0 0 40px rgba(120, 90, 255, 0.25);
+}
+
+canvas#game {
+  display: block;
+  background: #0a0a14;
+  cursor: crosshair;
+}
+
+/* ---------- HUD ---------- */
+
+#hud {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 260px;
+  pointer-events: none;
+  user-select: none;
+}
+
+#hpBarWrap, #dashBarWrap {
+  height: 14px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid #3a3a55;
+  border-radius: 7px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+#dashBarWrap { height: 6px; }
+
+#hpBar {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #ff3b6b, #ff8a5b);
+  transition: width 0.15s ease-out;
+}
+
+#dashBar {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #3bc7ff, #7dffb3);
+  transition: width 0.1s linear;
+}
+
+#hudRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  color: #b9b9e0;
+  text-shadow: 0 1px 2px #000;
+  margin-bottom: 4px;
+}
+
+/* ---------- Overlays ---------- */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 5, 12, 0.88);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+}
+
+.overlay.hidden { display: none; }
+
+.overlay h1 {
+  font-size: 42px;
+  letter-spacing: 4px;
+  margin: 0;
+  color: #ff4d7e;
+  text-shadow: 0 0 20px rgba(255, 77, 126, 0.6);
+}
+
+.overlay h2 {
+  font-size: 28px;
+  letter-spacing: 2px;
+  margin: 0;
+  color: #7dffb3;
+  text-shadow: 0 0 20px rgba(125, 255, 179, 0.5);
+}
+
+.overlay .sub {
+  color: #9a9ac0;
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.controls {
+  font-size: 13px;
+  color: #c6c6ea;
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+
+.controls b { color: #7dd3ff; }
+
+button {
+  background: linear-gradient(180deg, #6a5bff, #4a3bd9);
+  border: none;
+  color: white;
+  padding: 12px 28px;
+  font-size: 15px;
+  letter-spacing: 1px;
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: 0 4px 0 #2f24a3;
+  transition: transform 0.05s ease;
+}
+
+button:hover { filter: brightness(1.1); }
+button:active { transform: translateY(3px); box-shadow: 0 1px 0 #2f24a3; }
+
+#upgradeCards {
+  display: flex;
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.card {
+  width: 190px;
+  padding: 16px 14px;
+  background: linear-gradient(180deg, #161628, #0e0e1c);
+  border: 1px solid #3a3a66;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+.card:hover {
+  transform: translateY(-6px);
+  border-color: #7dd3ff;
+  box-shadow: 0 8px 24px rgba(125, 211, 255, 0.25);
+}
+
+.card .icon {
+  font-size: 30px;
+  margin-bottom: 8px;
+}
+
+.card .name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e8e8f0;
+  margin-bottom: 6px;
+}
+
+.card .desc {
+  font-size: 12px;
+  color: #9a9ac0;
+  line-height: 1.4;
+}
+
+.card .rarity {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+}
+
+.rarity-common { background: #2a2a45; color: #b9b9e0; }
+.rarity-rare { background: #1e3a5a; color: #7dd3ff; }
+.rarity-epic { background: #4a2a5a; color: #d97dff; }

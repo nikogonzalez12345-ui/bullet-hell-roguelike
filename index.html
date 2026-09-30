@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Void Runner — Bullet Hell Roguelike</title>
+<link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+  <div id="app">
+    <canvas id="game" width="960" height="600"></canvas>
+
+    <div id="hud">
+      <div id="hpBarWrap"><div id="hpBar"></div></div>
+      <div id="hudRow">
+        <span id="waveLabel">Wave 1</span>
+        <span id="scoreLabel">Score 0</span>
+      </div>
+      <div id="dashBarWrap"><div id="dashBar"></div></div>
+    </div>
+
+    <div id="startScreen" class="overlay">
+      <h1>VOID RUNNER</h1>
+      <p class="sub">a top-down bullet hell roguelike</p>
+      <div class="controls">
+        <p><b>Move</b> WASD / Arrow Keys</p>
+        <p><b>Aim &amp; Shoot</b> Mouse (auto-fire toward cursor)</p>
+        <p><b>Dash</b> Space / Right Click</p>
+      </div>
+      <button id="startBtn">Start Run</button>
+    </div>
+
+    <div id="upgradeScreen" class="overlay hidden">
+      <h2>Wave Cleared</h2>
+      <p class="sub">Choose an upgrade</p>
+      <div id="upgradeCards"></div>
+    </div>
+
+    <div id="gameOverScreen" class="overlay hidden">
+      <h1>YOU DIED</h1>
+      <p class="sub" id="finalStats"></p>
+      <button id="restartBtn">Try Again</button>
+    </div>
+  </div>
+
+  <script src="src/constants.js"></script>
+  <script src="src/utils.js"></script>
+  <script src="src/entities.js"></script>
+  <script src="src/patterns.js"></script>
+  <script src="src/spawner.js"></script>
+  <script src="src/upgrades.js"></script>
+  <script src="src/game.js"></script>
+  <script src="src/main.js"></script>
+</body>
+</html>
