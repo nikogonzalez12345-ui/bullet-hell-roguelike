@@ -49,10 +49,13 @@ function randomEdgeSpawn() {
 
 function buildWaveQueue(waveNum) {
   if (waveNum % WAVE.bossEvery === 0) {
-    // Boss wave: the boss plus a small escort.
+    // Boss wave: the boss plus a small escort. Bosses cycle through the
+    // three archetypes so wave 5/10/15 don't all look the same.
+    const cycleIndex = Math.floor(waveNum / WAVE.bossEvery) - 1;
+    const bossType = BOSS_CYCLE[cycleIndex % BOSS_CYCLE.length];
     const escort = Math.min(4, 1 + Math.floor(waveNum / WAVE.bossEvery));
     const queue = new Array(escort).fill("grunt");
-    queue.push("boss");
+    queue.push(bossType);
     return queue;
   }
 

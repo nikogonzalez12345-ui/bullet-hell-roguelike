@@ -7,6 +7,7 @@ class Game {
   constructor(ctx) {
     this.ctx = ctx;
     this.state = STATE.START;
+    this.background = new Background();
     this.reset();
     this.cacheDom();
     this.bindUi();
@@ -18,6 +19,7 @@ class Game {
       dashBar: document.getElementById("dashBar"),
       waveLabel: document.getElementById("waveLabel"),
       scoreLabel: document.getElementById("scoreLabel"),
+      weaponRow: document.getElementById("weaponRow"),
       startScreen: document.getElementById("startScreen"),
       upgradeScreen: document.getElementById("upgradeScreen"),
       upgradeCards: document.getElementById("upgradeCards"),
@@ -41,7 +43,10 @@ class Game {
     this.spawner = new Spawner();
     this.wave = 1;
     this.score = 0;
-    this.waveTransitionTimer = 0;
+    this.seenBossIds = new Set();
+    this.bannerText = null;
+    this.bannerTimer = 0;
+    this.activeBoss = null;
   }
 
   startRun() {
@@ -58,10 +63,11 @@ class Game {
   // -------------------------------------------------------------------------
 
   update(dt, input) {
+    this.background.update(dt);
     if (this.state !== STATE.PLAYING) return;
 
     this.player.update(dt, input);
-    if (input.mouseDown) this.player.tryShoot(this.bullets);
+    if (input.mouseDown) this.player.tryShoot(this.bullets, this.enemies);
 
     this.spawner.update(dt, this.enemies, this.wave);
 
@@ -70,10 +76,13 @@ class Game {
     for (const p of this.particles) p.update(dt);
 
     this.handleCollisions();
+    this.updateBossTracking();
 
     this.enemies = this.enemies.filter((e) => e.alive);
     this.bullets = this.bullets.filter((b) => !b.dead);
     this.particles = this.particles.filter((p) => !p.dead);
+
+    if (this.bannerTimer > 0) this.bannerTimer -= dt;
 
     if (!this.player.alive) {
       this.onGameOver();
@@ -87,6 +96,16 @@ class Game {
     }
 
     this.syncHud();
+  }
+
+  updateBossTracking() {
+    const boss = this.enemies.find((e) => e.isBoss && e.alive);
+    if (boss && !this.seenBossIds.has(boss.id)) {
+      this.seenBossIds.add(boss.id);
+      this.bannerText = `WAVE ${this.wave} — ${boss.name.toUpperCase()}`;
+      this.bannerTimer = 3;
+    }
+    this.activeBoss = boss || null;
   }
 
   handleCollisions() {
@@ -113,7 +132,7 @@ class Game {
           this.spawnHitParticles(this.player.x, this.player.y, COLORS.player, 6);
           b.dead = true;
         } else if (this.player.isInvulnerable) {
-          b.dead = true; // dashing through bullets destroys them harmlessly
+          b.dead = true; // rolling through bullets destroys them harmlessly
         }
       }
     }
@@ -129,7 +148,7 @@ class Game {
 
   onEnemyKilled(e) {
     this.score += e.score;
-    this.spawnHitParticles(e.x, e.y, e.color, e.type === "boss" ? 40 : 10);
+    this.spawnHitParticles(e.x, e.y, e.color, e.isBoss ? 40 : 10);
   }
 
   onWaveCleared() {
@@ -148,7 +167,7 @@ class Game {
   // -------------------------------------------------------------------------
 
   showUpgradeScreen() {
-    const picks = rollUpgrades(3);
+    const picks = rollUpgrades(this.player, 3);
     this.dom.upgradeCards.innerHTML = "";
     for (const u of picks) {
       const card = document.createElement("div");
@@ -188,12 +207,20 @@ class Game {
   syncHud() {
     const hpPct = clamp((this.player.hp / this.player.maxHp) * 100, 0, 100);
     this.dom.hpBar.style.width = hpPct + "%";
-    const dashPct = this.player.dashReady
+    const dashPct = this.player.rollReady
       ? 100
-      : clamp(100 - (this.player.dashCooldownTimer / this.player.dashCooldown) * 100, 0, 100);
+      : clamp(100 - (this.player.rollCooldownTimer / this.player.rollCooldown) * 100, 0, 100);
     this.dom.dashBar.style.width = dashPct + "%";
     this.dom.waveLabel.textContent = "Wave " + this.wave;
     this.dom.scoreLabel.textContent = "Score " + this.score;
+
+    const weaponKey = this.player.weapons.join(",");
+    if (this.dom.weaponRow.dataset.key !== weaponKey) {
+      this.dom.weaponRow.dataset.key = weaponKey;
+      this.dom.weaponRow.innerHTML = this.player.weapons
+        .map((id) => `<span class="weaponChip" style="--wc:${WEAPONS[id].color}">${WEAPONS[id].icon} ${WEAPONS[id].name}</span>`)
+        .join("");
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -203,18 +230,7 @@ class Game {
   draw() {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-
-    // subtle background grid
-    ctx.save();
-    ctx.strokeStyle = "rgba(255,255,255,0.03)";
-    ctx.lineWidth = 1;
-    for (let x = 0; x < CANVAS_W; x += 40) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, CANVAS_H); ctx.stroke();
-    }
-    for (let y = 0; y < CANVAS_H; y += 40) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_W, y); ctx.stroke();
-    }
-    ctx.restore();
+    this.background.draw(ctx);
 
     if (this.state === STATE.START) return;
 
@@ -222,5 +238,45 @@ class Game {
     for (const e of this.enemies) e.draw(ctx);
     for (const b of this.bullets) b.draw(ctx);
     if (this.player.alive) this.player.draw(ctx);
+
+    this.drawBossUi(ctx);
+    this.drawBanner(ctx);
+  }
+
+  drawBossUi(ctx) {
+    if (!this.activeBoss) return;
+    const boss = this.activeBoss;
+    const w = 480, x = (CANVAS_W - w) / 2, y = 16;
+    const pct = clamp(boss.hp / boss.maxHp, 0, 1);
+
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.font = "bold 13px 'Segoe UI', sans-serif";
+    ctx.fillStyle = "#ffd23b";
+    ctx.shadowColor = "#000";
+    ctx.shadowBlur = 4;
+    ctx.fillText(boss.name.toUpperCase(), CANVAS_W / 2, y + 12);
+
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(x, y + 18, w, 10);
+    ctx.fillStyle = "#ff2b4d";
+    ctx.fillRect(x, y + 18, w * pct, 10);
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.strokeRect(x, y + 18, w, 10);
+    ctx.restore();
+  }
+
+  drawBanner(ctx) {
+    if (this.bannerTimer <= 0 || !this.bannerText) return;
+    const alpha = clamp(this.bannerTimer / 3, 0, 1) * (this.bannerTimer > 2.5 ? (3 - this.bannerTimer) / 0.5 : 1);
+    ctx.save();
+    ctx.globalAlpha = clamp(alpha, 0, 1);
+    ctx.textAlign = "center";
+    ctx.font = "bold 30px 'Segoe UI', sans-serif";
+    ctx.fillStyle = "#ff4d7e";
+    ctx.shadowColor = "#ff2b4d";
+    ctx.shadowBlur = 20;
+    ctx.fillText(this.bannerText, CANVAS_W / 2, CANVAS_H / 2 - 40);
+    ctx.restore();
   }
 }

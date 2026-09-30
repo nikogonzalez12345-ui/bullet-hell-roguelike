@@ -59,6 +59,24 @@ canvas#game {
   transition: width 0.1s linear;
 }
 
+#weaponRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.weaponChip {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: rgba(10, 10, 20, 0.6);
+  border: 1px solid var(--wc, #3a3a55);
+  color: var(--wc, #b9b9e0);
+  text-shadow: 0 1px 2px #000;
+}
+
 #hudRow {
   display: flex;
   justify-content: space-between;

@@ -19,27 +19,33 @@ class Player {
     this.pierce = PLAYER.pierce;
     this.multishot = PLAYER.multishot;
     this.spreadDeg = PLAYER.spreadDeg;
-    this.dashSpeed = PLAYER.dashSpeed;
-    this.dashDuration = PLAYER.dashDuration;
-    this.dashCooldown = PLAYER.dashCooldown;
+    this.rollSpeed = PLAYER.rollSpeed;
+    this.rollDuration = PLAYER.rollDuration;
+    this.rollCooldown = PLAYER.rollCooldown;
     this.regenPerSec = PLAYER.regenPerSec;
     this.magnetRadius = PLAYER.magnetRadius;
 
-    this.fireCooldown = 0;
-    this.dashTimer = 0;      // >0 while dashing
-    this.dashCooldownTimer = 0;
-    this.dashDirX = 0;
-    this.dashDirY = 0;
+    this.weapons = ["pistol"];
+    this.weaponCooldowns = { pistol: 0 };
+
+    this.rollTimer = 0;      // >0 while rolling
+    this.rollCooldownTimer = 0;
+    this.rollDirX = 0;
+    this.rollDirY = 0;
+    this.rollRotation = 0;
+    this.trail = [];         // afterimage positions while rolling
     this.iframeTimer = 0;    // >0 = invulnerable
     this.regenAccum = 0;
 
     this.alive = true;
     this.facing = 0; // radians, for aim indicator
+    this.moving = false;
+    this.animTime = 0;
   }
 
-  get isDashing() { return this.dashTimer > 0; }
+  get isRolling() { return this.rollTimer > 0; }
   get isInvulnerable() { return this.iframeTimer > 0; }
-  get dashReady() { return this.dashCooldownTimer <= 0; }
+  get rollReady() { return this.rollCooldownTimer <= 0; }
 
   takeDamage(amount) {
     if (this.isInvulnerable || !this.alive) return false;
@@ -52,22 +58,34 @@ class Player {
     return true;
   }
 
-  startDash(dirX, dirY) {
-    if (!this.dashReady) return;
+  addWeapon(id) {
+    if (this.weapons.includes(id)) return false;
+    if (this.weapons.length >= MAX_EQUIPPED_WEAPONS) return false;
+    this.weapons.push(id);
+    this.weaponCooldowns[id] = 0;
+    return true;
+  }
+
+  startRoll(dirX, dirY) {
+    if (!this.rollReady) return;
     const len = Math.hypot(dirX, dirY) || 1;
-    this.dashDirX = dirX / len;
-    this.dashDirY = dirY / len;
-    this.dashTimer = this.dashDuration;
-    this.dashCooldownTimer = this.dashCooldown;
-    this.iframeTimer = Math.max(this.iframeTimer, PLAYER.dashIframes);
+    this.rollDirX = dirX / len;
+    this.rollDirY = dirY / len;
+    this.rollTimer = this.rollDuration;
+    this.rollCooldownTimer = this.rollCooldown;
+    this.rollRotation = 0;
+    this.iframeTimer = Math.max(this.iframeTimer, PLAYER.rollIframes);
   }
 
   update(dt, input) {
     if (!this.alive) return;
 
+    this.animTime += dt;
     if (this.iframeTimer > 0) this.iframeTimer -= dt;
-    if (this.dashCooldownTimer > 0) this.dashCooldownTimer -= dt;
-    if (this.fireCooldown > 0) this.fireCooldown -= dt;
+    if (this.rollCooldownTimer > 0) this.rollCooldownTimer -= dt;
+    for (const id of this.weapons) {
+      if (this.weaponCooldowns[id] > 0) this.weaponCooldowns[id] -= dt;
+    }
 
     if (this.regenPerSec > 0 && this.hp < this.maxHp) {
       this.regenAccum += this.regenPerSec * dt;
@@ -78,27 +96,33 @@ class Player {
       }
     }
 
-    if (this.dashTimer > 0) {
-      this.dashTimer -= dt;
-      this.x += this.dashDirX * this.dashSpeed * dt;
-      this.y += this.dashDirY * this.dashSpeed * dt;
+    if (this.rollTimer > 0) {
+      this.rollTimer -= dt;
+      this.x += this.rollDirX * this.rollSpeed * dt;
+      this.y += this.rollDirY * this.rollSpeed * dt;
+      this.rollRotation += dt * Math.PI * 2 * PLAYER.rollSpins * (this.rollDirX < 0 ? -1 : 1);
+      this.trail.push({ x: this.x, y: this.y, rot: this.rollRotation, flip: this.rollDirX < 0 });
+      if (this.trail.length > 6) this.trail.shift();
+      this.moving = true;
     } else {
+      this.trail.length = 0;
       let mx = 0, my = 0;
       if (input.up) my -= 1;
       if (input.down) my += 1;
       if (input.left) mx -= 1;
       if (input.right) mx += 1;
-      if (mx !== 0 || my !== 0) {
+      this.moving = mx !== 0 || my !== 0;
+      if (this.moving) {
         const len = Math.hypot(mx, my);
         mx /= len; my /= len;
         this.x += mx * this.speed * dt;
         this.y += my * this.speed * dt;
       }
 
-      if (input.dashPressed && this.dashReady) {
+      if (input.dashPressed && this.rollReady) {
         let dx = mx, dy = my;
         if (dx === 0 && dy === 0) { dx = Math.cos(this.facing); dy = Math.sin(this.facing); }
-        this.startDash(dx, dy);
+        this.startRoll(dx, dy);
       }
     }
 
@@ -110,32 +134,18 @@ class Player {
     }
   }
 
-  tryShoot(bullets) {
-    if (this.fireCooldown > 0) return;
-    this.fireCooldown = 1 / this.fireRate;
-
-    const shots = this.multishot;
-    const spread = (shots - 1) * this.spreadDeg;
-    const startAngle = this.facing - (spread / 2) * (Math.PI / 180);
-    for (let i = 0; i < shots; i++) {
-      const angle = shots === 1 ? this.facing : startAngle + i * this.spreadDeg * (Math.PI / 180);
-      bullets.push(new Bullet({
-        x: this.x + Math.cos(angle) * (this.radius + 6),
-        y: this.y + Math.sin(angle) * (this.radius + 6),
-        vx: Math.cos(angle) * this.bulletSpeed,
-        vy: Math.sin(angle) * this.bulletSpeed,
-        radius: this.bulletRadius,
-        damage: this.damage,
-        pierce: this.pierce,
-        owner: "player",
-        color: COLORS.playerBullet,
-      }));
+  tryShoot(bullets, enemies) {
+    for (const id of this.weapons) {
+      if (this.weaponCooldowns[id] > 0) continue;
+      const def = WEAPONS[id];
+      this.weaponCooldowns[id] = 1 / (this.fireRate * def.fireRateMul);
+      fireWeapon(id, this, bullets, enemies);
     }
   }
 
   draw(ctx) {
     ctx.save();
-    const flashing = this.iframeTimer > 0 && Math.floor(this.iframeTimer * 20) % 2 === 0;
+    const flashing = this.iframeTimer > 0 && !this.isRolling && Math.floor(this.iframeTimer * 20) % 2 === 0;
     ctx.globalAlpha = flashing ? 0.4 : 1;
 
     // Aim indicator
@@ -146,12 +156,32 @@ class Player {
     ctx.lineTo(this.x + Math.cos(this.facing) * (this.radius + 18), this.y + Math.sin(this.facing) * (this.radius + 18));
     ctx.stroke();
 
-    ctx.fillStyle = this.isDashing ? COLORS.playerDash : COLORS.player;
+    // Afterimage trail while dodge-rolling
+    if (this.isRolling) {
+      const sprite = getCharacterSprite("player");
+      for (let i = 0; i < this.trail.length; i++) {
+        const t = this.trail[i];
+        ctx.save();
+        ctx.globalAlpha = (i / this.trail.length) * 0.35;
+        drawSprite(ctx, sprite, t.x, t.y, this.radius * 2.6, this.radius * 2.6, t.flip, t.rot);
+        ctx.restore();
+      }
+    }
+
+    const flip = Math.abs(this.facing) > Math.PI / 2;
     ctx.shadowColor = COLORS.player;
-    ctx.shadowBlur = this.isDashing ? 25 : 12;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.shadowBlur = this.isRolling ? 22 : 10;
+    const bob = this.moving && !this.isRolling ? Math.sin(this.animTime * 10) * 1.2 : 0;
+    drawSprite(
+      ctx,
+      getCharacterSprite("player"),
+      this.x,
+      this.y + bob,
+      this.radius * 2.6,
+      this.radius * 2.6,
+      flip,
+      this.isRolling ? this.rollRotation : 0
+    );
     ctx.restore();
   }
 }
@@ -244,12 +274,27 @@ const ENEMY_DEFS = {
     contactDamage: 10, score: 28, behavior: "orbit",
     preferredRange: 180, fireInterval: 1.8, pattern: "radialBurst",
   },
-  boss: {
-    hp: 900, radius: 34, speed: 55, color: COLORS.enemyBoss,
-    contactDamage: 18, score: 500, behavior: "boss",
-    preferredRange: 260, fireInterval: 0.9, pattern: "bossPattern",
+  boss_oni: {
+    hp: 850, radius: 30, speed: 60, color: COLORS.enemyBoss,
+    contactDamage: 20, score: 500, behavior: "boss",
+    preferredRange: 240, fireInterval: 0.9, pattern: "oniPattern",
+    name: "Oni Brute",
+  },
+  boss_kitsune: {
+    hp: 1100, radius: 28, speed: 85, color: "#ff9bd6",
+    contactDamage: 16, score: 650, behavior: "boss",
+    preferredRange: 260, fireInterval: 0.8, pattern: "kitsunePattern",
+    name: "Kitsune Spirit",
+  },
+  boss_dragon: {
+    hp: 1400, radius: 32, speed: 70, color: "#2fe6c8",
+    contactDamage: 22, score: 800, behavior: "boss",
+    preferredRange: 250, fireInterval: 0.75, pattern: "dragonPattern",
+    name: "Ryujin Dragon",
   },
 };
+
+const BOSS_CYCLE = ["boss_oni", "boss_kitsune", "boss_dragon"];
 
 let enemyIdCounter = 1;
 
@@ -259,6 +304,8 @@ class Enemy {
     this.id = enemyIdCounter++;
     this.type = type;
     this.def = def;
+    this.isBoss = type.startsWith("boss_");
+    this.name = def.name || null;
     this.x = x;
     this.y = y;
     this.radius = def.radius;
@@ -273,6 +320,7 @@ class Enemy {
     this.orbitAngle = rand(0, Math.PI * 2);
     this.hitFlash = 0;
     this.telegraph = 0; // used by sniper wind-up
+    this.animTime = rand(0, 10);
   }
 
   takeDamage(amount) {
@@ -284,6 +332,7 @@ class Enemy {
 
   update(dt, player, bullets) {
     if (!this.alive) return;
+    this.animTime += dt;
     if (this.hitFlash > 0) this.hitFlash -= dt;
 
     const d = dist(this.x, this.y, player.x, player.y);
@@ -346,15 +395,22 @@ class Enemy {
 
   draw(ctx) {
     ctx.save();
-    ctx.fillStyle = this.hitFlash > 0 ? "#ffffff" : this.color;
-    ctx.shadowColor = this.color;
-    ctx.shadowBlur = this.type === "boss" ? 24 : 10;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-    ctx.fill();
+    const bob = Math.sin(this.animTime * 6) * 1;
 
-    // HP bar for tougher enemies
-    if (this.type === "boss" || this.maxHp > 30) {
+    if (this.hitFlash > 0) {
+      ctx.filter = "brightness(2.4) saturate(0)";
+    }
+
+    const sprite = this.isBoss ? getBossSprite(this.type) : getCharacterSprite(this.type);
+    const drawSize = this.isBoss ? this.radius * 2.5 : this.radius * 2.6;
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = this.isBoss ? 22 : 8;
+    drawSprite(ctx, sprite, this.x, this.y + bob, drawSize, drawSize, false, 0);
+    ctx.filter = "none";
+
+    // HP bar for tougher enemies (bosses get a bigger, name-less bar here —
+    // the name + full-width bar is drawn separately by Game as a HUD overlay)
+    if (!this.isBoss && this.maxHp > 30) {
       const w = this.radius * 2;
       const pct = clamp(this.hp / this.maxHp, 0, 1);
       ctx.shadowBlur = 0;

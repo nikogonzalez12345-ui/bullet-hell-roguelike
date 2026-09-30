@@ -64,10 +64,38 @@ const UPGRADES = [
   },
 ];
 
+// Weapon-unlock cards — filtered out of the pool once owned or once the
+// player has hit MAX_EQUIPPED_WEAPONS (see rollUpgrades).
+const WEAPON_UPGRADES = [
+  {
+    id: "unlock_shotgun", weaponId: "shotgun", icon: WEAPONS.shotgun.icon, name: "Unlock: Shotgun", rarity: "rare",
+    desc: "5-pellet close-range spread, fires alongside your other guns",
+    apply(p) { p.addWeapon("shotgun"); },
+  },
+  {
+    id: "unlock_smg", weaponId: "smg", icon: WEAPONS.smg.icon, name: "Unlock: SMG", rarity: "rare",
+    desc: "Very fast, lower damage, slight spray",
+    apply(p) { p.addWeapon("smg"); },
+  },
+  {
+    id: "unlock_laser", weaponId: "laser", icon: WEAPONS.laser.icon, name: "Unlock: Laser", rarity: "epic",
+    desc: "Fast piercing beam shots (+3 pierce)",
+    apply(p) { p.addWeapon("laser"); },
+  },
+  {
+    id: "unlock_missile", weaponId: "missile", icon: WEAPONS.missile.icon, name: "Unlock: Missile Launcher", rarity: "epic",
+    desc: "Slow homing missiles, heavy damage",
+    apply(p) { p.addWeapon("missile"); },
+  },
+];
+
 const RARITY_WEIGHT = { common: 10, rare: 5, epic: 2 };
 
-function rollUpgrades(count = 3) {
-  const pool = [...UPGRADES];
+function rollUpgrades(player, count = 3) {
+  const weaponCards = WEAPON_UPGRADES.filter(
+    (u) => player.weapons.length < MAX_EQUIPPED_WEAPONS && !player.weapons.includes(u.weaponId)
+  );
+  const pool = [...UPGRADES, ...weaponCards];
   const picks = [];
   for (let i = 0; i < count && pool.length > 0; i++) {
     const weighted = pool.map((u) => ({ ...u, weight: RARITY_WEIGHT[u.rarity] }));
