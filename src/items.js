@@ -50,9 +50,13 @@ function rollRarity(luck, minIndex = 0) {
   return weightedPick(pool).r;
 }
 
-function makeGear({ level = 0, minRarity = 0 } = {}) {
+// Rarer armor is more likely to carry an element (feeding set bonuses).
+const ELEMENT_CHANCE = { common: 0.4, uncommon: 0.7, rare: 1, epic: 1, legendary: 1 };
+
+function makeGear({ level = 0, minRarity = 0, element } = {}) {
   const slot = choice(SLOTS);
   const rarity = rollRarity(level, minRarity);
+  const el = element || (Math.random() < ELEMENT_CHANCE[rarity.id] ? choice(ELEMENT_IDS) : "none");
   const stats = {};
   for (const [key, range] of Object.entries(slot.implicit)) {
     stats[key] = rollStat(key, range, rarity, level);
@@ -66,9 +70,10 @@ function makeGear({ level = 0, minRarity = 0 } = {}) {
     id: itemIdCounter++,
     kind: "gear",
     slot: slot.id,
+    element: el,
     rarity: rarity.id,
     level: level + 1,
-    name: `${choice(PREFIXES[rarity.id])} ${choice(slot.bases)}`,
+    name: `${el !== "none" ? ELEMENTS[el].adj : choice(PREFIXES[rarity.id])} ${choice(slot.bases)}`,
     stats,
   };
 }
@@ -94,7 +99,43 @@ const ICON_CACHE = new Map();
 const ICON_TEX_CACHE = new Map();
 
 function iconKey(item) {
-  return item.kind === "potion" ? "potion" : item.slot + ":" + item.rarity;
+  if (item.kind === "potion") return "potion";
+  const shape = item.kind === "weapon" ? "w:" + WEAPON_BASES[item.base].cls : item.slot;
+  return `${shape}:${item.rarity}:${item.element || "none"}`;
+}
+
+// Elemental items use their element's colours; neutral ones fall back to
+// plain metal with a rarity-coloured accent.
+function iconColors(item) {
+  const el = item.element && item.element !== "none" ? ELEMENTS[item.element] : null;
+  return {
+    accent: el ? el.color : itemColor(item),
+    metal: el ? el.armor : "#c8c0b0",
+    shine: el ? el.light : "#ffffff",
+  };
+}
+
+function drawWeaponIcon(px, cls, metal, accent, shine, ink) {
+  const wood = "#6a3e22";
+  switch (cls) {
+    case "pistol":
+      px(3, 5, 10, 4, ink); px(4, 6, 8, 2, metal); px(4, 9, 4, 5, ink); px(5, 9, 2, 4, wood); px(10, 6, 2, 1, accent); break;
+    case "ar":
+      px(1, 5, 14, 4, ink); px(2, 6, 12, 2, metal); px(6, 9, 3, 4, ink); px(6, 9, 2, 3, accent); px(1, 7, 3, 4, ink); px(12, 6, 2, 1, shine); break;
+    case "smg":
+      px(3, 5, 10, 4, ink); px(4, 6, 8, 2, metal); px(7, 9, 3, 6, ink); px(8, 9, 1, 5, accent); px(4, 9, 2, 3, ink); break;
+    case "shotgun":
+      px(1, 5, 14, 5, ink); px(2, 6, 12, 1, metal); px(2, 8, 12, 1, metal); px(1, 9, 5, 4, ink); px(2, 9, 3, 3, wood); px(12, 6, 2, 3, accent); break;
+    case "sniper":
+      px(0, 7, 16, 3, ink); px(1, 8, 14, 1, metal); px(5, 4, 6, 3, ink); px(6, 5, 4, 1, accent); px(1, 9, 3, 4, ink); break;
+    case "melee":
+      for (let i = 0; i < 9; i++) px(3 + i, 11 - i, 2, 2, i < 7 ? metal : shine);
+      px(2, 10, 5, 2, ink); px(3, 12, 2, 3, accent); px(12, 2, 2, 2, accent); break;
+    case "throwing":
+      px(7, 1, 2, 14, ink); px(1, 7, 14, 2, ink); px(7, 2, 2, 12, metal); px(2, 7, 12, 2, metal); px(6, 6, 4, 4, accent); px(7, 7, 2, 2, shine); break;
+    case "launcher":
+      px(1, 4, 13, 7, ink); px(2, 5, 11, 5, metal); px(13, 5, 2, 5, accent); px(5, 11, 3, 4, ink); px(3, 6, 8, 1, shine); break;
+  }
 }
 
 function itemIcon(item) {
@@ -103,13 +144,19 @@ function itemIcon(item) {
   const c = document.createElement("canvas");
   c.width = c.height = 16;
   const ctx = c.getContext("2d");
-  const accent = itemColor(item);
-  const metal = "#c8c0b0", dark = "#5a4a4a", ink = "#1a0a10";
+  const { accent, metal, shine } = iconColors(item);
+  const dark = "#5a4a4a", ink = "#1a0a10";
   const px = (x, y, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(x, y, w, h); };
+
+  if (item.kind === "weapon") {
+    drawWeaponIcon(px, WEAPON_BASES[item.base].cls, metal, accent, shine, ink);
+    ICON_CACHE.set(key, c);
+    return c;
+  }
 
   switch (item.kind === "potion" ? "potion" : item.slot) {
     case "head":
-      px(4, 3, 8, 2, ink); px(3, 5, 10, 6, ink); px(4, 4, 8, 6, metal); px(5, 4, 6, 1, "#fff");
+      px(4, 3, 8, 2, ink); px(3, 5, 10, 6, ink); px(4, 4, 8, 6, metal); px(5, 4, 6, 1, shine);
       px(3, 10, 10, 2, accent); px(7, 5, 2, 5, dark); break;
     case "chest":
       px(2, 3, 12, 11, ink); px(3, 4, 10, 9, metal); px(3, 4, 3, 2, accent); px(10, 4, 3, 2, accent);

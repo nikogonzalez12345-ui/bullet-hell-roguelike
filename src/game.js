@@ -31,6 +31,15 @@ class Game {
     this.particles = [];
     this.gems = [];
     this.loot = [];
+    // Short-lived effect entities (rendered by Renderer3D)
+    this.swings = [];
+    this.blasts = [];
+    this.bolts = [];
+    this.puddles = [];
+    this.popups = [];
+    this.orbitals = [];
+    this.fxTimers = { nova: 6, trail: 0 };
+    this.reactionBudget = 40;
     this.director = new Director(this);
     this.score = 0;
     this.pendingLevels = 0;
@@ -151,21 +160,28 @@ class Game {
       }
     }
     this.updateAim(dt);
-    if (input.mouseDown) p.tryShoot(this.bullets, this.enemies);
+    this.reactionBudget = 40; // caps reaction chains per frame
+    p.updateWeapons(dt, this, input.mouseDown);
 
     this.director.update(dt);
-    for (const e of this.enemies) e.update(dt, p, this.bullets);
+    for (const e of this.enemies) {
+      updateEnemyStatus(this, e, dt);
+      e.update(dt, p, this.bullets);
+    }
     for (const b of this.bullets) b.update(dt);
     for (const pt of this.particles) pt.update(dt);
     for (const gem of this.gems) gem.update(dt, p);
 
     this.handleCollisions();
+    this.updateEffects(dt);
+    this.updateAffinityBonuses(dt);
     this.collectPickups();
     this.updateBossTracking();
 
     this.enemies = this.enemies.filter((e) => e.alive);
     this.bullets = this.bullets.filter((b) => !b.dead);
     this.particles = this.particles.filter((pt) => !pt.dead);
+    if (this.particles.length > 1400) this.particles.splice(0, this.particles.length - 1400);
 
     if (!p.alive) return this.onGameOver();
     if (this.pendingLevels > 0) this.openLevelUp();
@@ -226,12 +242,41 @@ class Game {
   handleCollisions() {
     const p = this.player;
     for (const b of this.bullets) {
-      if (b.owner !== "player" || b.dead) continue;
+      if (b.owner !== "player") continue;
+      // Rockets/grenades that run out of range (or hit cover) still detonate.
+      if (b.dead) {
+        if (b.expired && b.blast && !b.detonated) {
+          b.detonated = true;
+          this.explode(b.x, b.y, b.blast, b.damage, b.element, b);
+        }
+        continue;
+      }
+      if (b.lob && b.age < b.maxLife * 0.75) continue; // still airborne
       for (const e of this.enemies) {
-        if (!e.alive || !circleHit(b.x, b.y, b.radius, e.x, e.y, e.radius)) continue;
-        const killed = e.takeDamage(b.damage);
-        this.spawnParticles(b.x, b.y, e.color, 3);
-        if (killed) this.onEnemyKilled(e);
+        if (!e.alive || b.hitIds.has(e.id) || !circleHit(b.x, b.y, b.radius, e.x, e.y, e.radius)) continue;
+        b.hitIds.add(e.id);
+        this.damageEnemy(e, b.damage, b.element, b);
+        this.spawnParticles(b.x, b.y, b.color, 3);
+        if (b.blast && !b.detonated) {
+          b.detonated = true;
+          this.explode(b.x, b.y, b.blast, b.damage * 0.8, b.element, b);
+          b.dead = true;
+          break;
+        }
+        if (b.split && !b.shard) this.splitBullet(b);
+        if (b.bounce > 0) {
+          const next = findNearestEnemy(b.x, b.y, this.enemies, b.hitIds);
+          if (next && dist(next.x, next.y, b.x, b.y) < 320) {
+            b.bounce -= 1;
+            const a = angleTo(b.x, b.y, next.x, next.y);
+            const sp = Math.hypot(b.vx, b.vy);
+            b.vx = Math.cos(a) * sp;
+            b.vy = Math.sin(a) * sp;
+            b.life = Math.max(b.life, 0.8);
+            break;
+          }
+        }
+        if (b.boomerang) continue; // boomerangs cut through everything
         if (b.pierce > 0) { b.pierce -= 1; } else { b.dead = true; break; }
       }
     }
@@ -257,15 +302,190 @@ class Game {
 
     for (const l of this.loot) {
       if (dist(l.x, l.y, p.x, p.y) > LOOT.pickupRange) continue;
-      if (p.addToBackpack(l.item)) {
+      const result = l.item.kind === "weapon" ? p.addWeaponItem(l.item) : p.addToBackpack(l.item);
+      if (result) {
         l.taken = true;
-        this.hud.toast(`+ ${l.item.name.toUpperCase()}`, itemColor(l.item));
+        const where = result === "equipped" ? " (EQUIPPED)" : "";
+        this.hud.toast(`+ ${l.item.name.toUpperCase()}${where}`, itemColor(l.item));
       } else if (this.fullWarnCooldown <= 0) {
         this.fullWarnCooldown = 2.5;
         this.hud.toast("BACKPACK FULL - PRESS TAB", UI.hp.light);
       }
     }
     this.loot = this.loot.filter((l) => !l.taken);
+  }
+
+  // ---- Damage + effects ---------------------------------------------------
+
+  // Every source of player damage funnels through here, so statuses,
+  // reactions, lifesteal and kill effects apply consistently.
+  damageEnemy(e, amount, element, src, isDot) {
+    if (!e.alive) return;
+    const dealt = amount * enemyDamageMult(this, e);
+    e.hp -= dealt;
+    if (!isDot) e.hitFlash = 0.08;
+
+    let steal = 0;
+    if (element === "dark" && this.player.tier("dark") >= 1) steal += 0.04;
+    if (src && src.vampiric) steal += 0.03;
+    if (steal) this.healPlayer(Math.min(dealt * steal, 6));
+
+    if (element) applyElement(this, e, element, amount, src);
+    if (e.alive && e.hp <= 0) {
+      e.alive = false;
+      this.onEnemyKilled(e, element, src);
+    }
+  }
+
+  healPlayer(amount) {
+    const p = this.player;
+    if (p.alive) p.hp = Math.min(p.maxHp, p.hp + amount);
+  }
+
+  explode(x, y, radius, damage, element, src) {
+    this.blasts.push({ x, y, r: radius, t: 0, dur: 0.35, color: elementOf(element).color });
+    this.spawnParticles(x, y, elementOf(element).light, 8);
+    for (const e of this.enemies) {
+      if (e.alive && dist(e.x, e.y, x, y) < radius + e.radius) this.damageEnemy(e, damage, element, src);
+    }
+  }
+
+  bolt(x1, y1, x2, y2, color) {
+    this.bolts.push({ x1, y1, x2, y2, color, t: 0, dur: 0.14, seed: Math.random() * 1000 });
+  }
+
+  // Chain lightning: hop between nearby enemies not yet struck.
+  chain(from, jumps, range, damage, element) {
+    const hit = new Set([from.id]);
+    let cur = from;
+    for (let i = 0; i < jumps; i++) {
+      let next = null, best = range;
+      for (const e of this.enemies) {
+        if (!e.alive || hit.has(e.id)) continue;
+        const d = dist(e.x, e.y, cur.x, cur.y);
+        if (d < best) { best = d; next = e; }
+      }
+      if (!next) break;
+      hit.add(next.id);
+      this.bolt(cur.x, cur.y, next.x, next.y, ELEMENTS.energy.color);
+      // Chains apply damage without re-rolling more chains (no element).
+      this.damageEnemy(next, damage, element === "energy" ? null : element);
+      cur = next;
+    }
+  }
+
+  // Melee: hits every enemy inside the arc at once, and cuts enemy bullets
+  // out of the air — the melee answer to bullet hell.
+  swing(s) {
+    this.swings.push({ ...s, t: 0, dur: 0.2, color: elementOf(s.element).color });
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const d = dist(e.x, e.y, s.x, s.y);
+      if (d > s.range + e.radius) continue;
+      if (Math.abs(wrapAngle(angleTo(s.x, s.y, e.x, e.y) - s.angle)) > s.arc / 2 + 0.15) continue;
+      const wasAlive = e.alive;
+      this.damageEnemy(e, s.damage, s.element, s.item ? { vampiric: s.item.mutations.includes("vampiric") } : null);
+      if (wasAlive && !e.alive && s.reap) this.healPlayer(s.reap);
+      this.spawnParticles(e.x, e.y, elementOf(s.element).light, 4);
+      if (s.item && s.item.mutations.includes("volatile")) this.explode(e.x, e.y, 55, s.damage * 0.6, s.element);
+    }
+    for (const b of this.bullets) {
+      if (b.owner !== "enemy" || b.dead) continue;
+      const d = dist(b.x, b.y, s.x, s.y);
+      if (d < s.range && Math.abs(wrapAngle(angleTo(s.x, s.y, b.x, b.y) - s.angle)) < s.arc / 2) {
+        b.dead = true;
+        this.spawnParticles(b.x, b.y, "#ffffff", 1);
+      }
+    }
+    if (s.shock) {
+      const sx = s.x + Math.cos(s.angle) * s.range * 0.7, sy = s.y + Math.sin(s.angle) * s.range * 0.7;
+      this.explode(sx, sy, s.shock, s.damage * 0.5, s.element);
+    }
+  }
+
+  splitBullet(b) {
+    const base = Math.atan2(b.vy, b.vx);
+    for (let i = 0; i < b.split; i++) {
+      const a = base + (i - (b.split - 1) / 2) * 0.5;
+      const sp = Math.hypot(b.vx, b.vy) * 0.8;
+      const shard = new Bullet({
+        x: b.x, y: b.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        radius: b.radius * 0.6, damage: b.damage * 0.4, owner: "player", color: b.color,
+        element: b.element, shape: "pellet", life: 0.5, shard: true,
+      });
+      for (const id of b.hitIds) shard.hitIds.add(id);
+      this.bullets.push(shard);
+    }
+  }
+
+  popup(e, text, color) {
+    this.popups.push({ x: e.x, y: e.y, h: 2.4, text, color, t: 0, dur: 0.9 });
+    if (this.popups.length > 12) this.popups.shift();
+  }
+
+  spawnPuddle(x, y, r, dps, dur) {
+    const big = this.player.tier("slime") >= 1 ? 1.4 : 1;
+    this.puddles.push({ x, y, r: r * big, dps, t: 0, dur: dur * big, tick: 0 });
+    if (this.puddles.length > 40) this.puddles.shift();
+  }
+
+  updateEffects(dt) {
+    const age = (list) => {
+      for (const f of list) f.t += dt;
+      return list.filter((f) => f.t < f.dur);
+    };
+    this.swings = age(this.swings);
+    this.blasts = age(this.blasts);
+    this.bolts = age(this.bolts);
+    this.popups = age(this.popups);
+    this.puddles = age(this.puddles);
+    for (const pd of this.puddles) {
+      pd.tick -= dt;
+      if (pd.tick > 0) continue;
+      pd.tick = 0.3;
+      for (const e of this.enemies) {
+        if (e.alive && dist(e.x, e.y, pd.x, pd.y) < pd.r + e.radius) this.damageEnemy(e, pd.dps * 0.3, "slime", null, true);
+      }
+    }
+  }
+
+  // Tier-3 set bonuses that run on timers, plus holy orbs.
+  updateAffinityBonuses(dt) {
+    const p = this.player;
+    const dmgMul = p.damage / PLAYER.baseDamage;
+
+    if (p.tier("frost") >= 3) {
+      this.fxTimers.nova -= dt;
+      if (this.fxTimers.nova <= 0) {
+        this.fxTimers.nova = 6;
+        this.explode(p.x, p.y, 170, 10 * dmgMul, "frost");
+        for (const e of this.enemies) if (e.alive && dist(e.x, e.y, p.x, p.y) < 170) applyElement(this, e, "frost", 10);
+      }
+    }
+    if (p.tier("slime") >= 3 && p.moving) {
+      this.fxTimers.trail -= dt;
+      if (this.fxTimers.trail <= 0) {
+        this.fxTimers.trail = 0.3;
+        this.spawnPuddle(p.x, p.y, 38, 12 * dmgMul, 2.5);
+      }
+    }
+
+    const wantOrbs = p.tier("light") >= 3 ? 2 : 0;
+    while (this.orbitals.length < wantOrbs) this.orbitals.push({ a: this.orbitals.length * Math.PI, cooldowns: new Map() });
+    this.orbitals.length = wantOrbs;
+    for (const o of this.orbitals) {
+      o.a += dt * 3.2;
+      o.x = p.x + Math.cos(o.a) * 75;
+      o.y = p.y + Math.sin(o.a) * 75;
+      for (const e of this.enemies) {
+        if (!e.alive || dist(e.x, e.y, o.x, o.y) > 16 + e.radius) continue;
+        const cd = o.cooldowns.get(e.id) || 0;
+        if (performance.now() - cd < 400) continue;
+        if (o.cooldowns.size > 200) o.cooldowns.clear();
+        o.cooldowns.set(e.id, performance.now());
+        this.damageEnemy(e, 14 * dmgMul, "light");
+      }
+    }
   }
 
   addXp(value) {
@@ -282,7 +502,9 @@ class Game {
     this.state = STATE.LEVELUP;
     this.unlockPointer();
     const level = this.player.level - this.pendingLevels + 1;
-    this.ui.showLevelUp(rollUpgrades(this.player, 3), level, this.pendingLevels);
+    const threat = this.director.threat;
+    const itemLevel = Math.floor(this.director.time / 60);
+    this.ui.showLevelUp(rollUpgrades(this.player, 3, threat, itemLevel), level, this.pendingLevels);
   }
 
   chooseUpgrade(u) {
@@ -312,9 +534,23 @@ class Game {
   }
 
   onEnemyKilled(e) {
+    const p = this.player;
     this.score += e.score;
-    this.player.kills += 1;
+    p.kills += 1;
     this.spawnParticles(e.x, e.y, e.color, e.isBoss ? 60 : 12);
+    const dmgMul = p.damage / PLAYER.baseDamage;
+
+    // Elemental death effects — the set bonuses that make kills chain.
+    if (e.status.slime > 0) this.spawnPuddle(e.x, e.y, 55, 10 * dmgMul * p.potency("slime"), 3);
+    if (e.status.fire > 0 && p.tier("fire") >= 2) this.explode(e.x, e.y, 75, 20 * dmgMul * p.potency("fire"), "fire");
+    if (e.status.light > 0 && p.tier("light") >= 2) this.healPlayer(3);
+    if (p.tier("dark") >= 3) {
+      this.bullets.push(new Bullet({
+        x: e.x, y: e.y, vx: rand(-80, 80), vy: rand(-80, 80), radius: 4, damage: 12 * dmgMul,
+        owner: "player", color: ELEMENTS.dark.color, element: "dark", shape: "orb", life: 3,
+        homing: 6, target: findNearestEnemy(e.x, e.y, this.enemies, new Set([e.id])),
+      }));
+    }
 
     // XP: bosses burst into many gems; the gem cap keeps huge fights cheap.
     const chunks = e.isBoss ? 8 : 1;
@@ -325,12 +561,15 @@ class Game {
     }
 
     const level = Math.floor(this.director.time / 60);
+    const threat = this.director.threat;
     if (e.isBoss) {
       for (let i = 0; i < LOOT.bossItemDrops; i++) this.dropLoot(e, makeGear({ level, minRarity: 2 }));
+      this.dropLoot(e, makeWeapon({ level, minRarity: 2, threat: threat + 1 }));
       this.dropLoot(e, makePotion());
       this.showBanner(`${e.name.toUpperCase()} DEFEATED`, 3, UI.gold);
     } else {
       if (Math.random() < LOOT.itemDropChance) this.dropLoot(e, makeGear({ level }));
+      if (Math.random() < LOOT.weaponDropChance) this.dropLoot(e, makeWeapon({ level, threat }));
       if (Math.random() < LOOT.potionDropChance) this.dropLoot(e, makePotion());
     }
   }

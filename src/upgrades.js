@@ -75,45 +75,38 @@ const UPGRADES = [
   },
 ];
 
-// Weapon-unlock cards — filtered out of the pool once owned or once the
-// player has hit MAX_EQUIPPED_WEAPONS (see rollUpgrades).
-const WEAPON_UPGRADES = [
-  {
-    id: "unlock_shotgun", weaponId: "shotgun", icon: WEAPONS.shotgun.icon, name: "Unlock: Shotgun", rarity: "rare",
-    desc: "5-pellet close-range spread, fires alongside your other guns",
-    apply(p) { p.addWeapon("shotgun"); },
-  },
-  {
-    id: "unlock_smg", weaponId: "smg", icon: WEAPONS.smg.icon, name: "Unlock: SMG", rarity: "rare",
-    desc: "Very fast, lower damage, slight spray",
-    apply(p) { p.addWeapon("smg"); },
-  },
-  {
-    id: "unlock_laser", weaponId: "laser", icon: WEAPONS.laser.icon, name: "Unlock: Laser", rarity: "epic",
-    desc: "Fast piercing beam shots (+3 pierce)",
-    apply(p) { p.addWeapon("laser"); },
-  },
-  {
-    id: "unlock_missile", weaponId: "missile", icon: WEAPONS.missile.icon, name: "Unlock: Missile Launcher", rarity: "epic",
-    desc: "Slow homing missiles, heavy damage",
-    apply(p) { p.addWeapon("missile"); },
-  },
-];
-
 const RARITY_WEIGHT = { common: 10, rare: 5, epic: 2 };
 
-function rollUpgrades(player, count = 3) {
-  const weaponCards = WEAPON_UPGRADES.filter(
-    (u) => player.weapons.length < MAX_EQUIPPED_WEAPONS && !player.weapons.includes(u.weaponId)
-  );
-  const pool = [...UPGRADES.filter((u) => !u.available || u.available(player)), ...weaponCards];
+// A level-up card offering a freshly rolled weapon (mutated at higher threat).
+function weaponOfferCard(threat, itemLevel) {
+  const w = makeWeapon({ level: itemLevel, threat, minRarity: 1 });
+  const b = WEAPON_BASES[w.base];
+  const el = elementOf(w.element);
+  const muts = w.mutations.map((m) => MUTATIONS[m].name).join(" + ");
+  return {
+    id: "weapon_" + w.id,
+    weapon: w,
+    icon: WEAPON_CLASSES[b.cls].glyph,
+    iconColor: el.color,
+    name: w.name,
+    rarity: w.mutations.length ? "epic" : "rare",
+    desc: `${WEAPON_CLASSES[b.cls].name} · ${el.name}${muts ? " · " + muts : ""}`,
+    apply(p) { p.addWeaponItem(w); },
+  };
+}
+
+// Three distinct picks. One is usually a new weapon (always, while there's
+// a free weapon slot), the rest come from the stat pool.
+function rollUpgrades(player, count = 3, threat = 1, itemLevel = 0) {
   const picks = [];
-  for (let i = 0; i < count && pool.length > 0; i++) {
-    const weighted = pool.map((u) => ({ ...u, weight: RARITY_WEIGHT[u.rarity] }));
-    const chosen = weightedPick(weighted);
+  const freeSlot = player.weaponSlots.includes(null);
+  if (freeSlot || Math.random() < 0.45) picks.push(weaponOfferCard(threat, itemLevel));
+
+  const pool = UPGRADES.filter((u) => !u.available || u.available(player));
+  while (picks.length < count && pool.length > 0) {
+    const chosen = weightedPick(pool.map((u) => ({ ...u, weight: RARITY_WEIGHT[u.rarity] })));
     picks.push(chosen);
-    const idx = pool.findIndex((u) => u.id === chosen.id);
-    pool.splice(idx, 1);
+    pool.splice(pool.findIndex((u) => u.id === chosen.id), 1);
   }
   return picks;
 }

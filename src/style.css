@@ -191,25 +191,51 @@ button.small { font-size: 8px; padding: 8px 12px; min-width: 0; }
 
 /* ---------- Inventory ---------- */
 
-.inv { width: 780px; padding: 18px 21px; text-align: left; }
-.inv-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-.inv-body { display: flex; gap: 27px; }
-.inv-left { display: flex; flex-direction: column; gap: 15px; }
-.inv-left .keys { min-width: 0; width: 288px; }
+.inv { width: 924px; padding: 15px 18px; text-align: left; }
+.inv-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px; }
+.inv-body { display: flex; gap: 18px; }
+.inv-left { display: flex; flex-direction: column; gap: 6px; }
+.inv-left .keys { min-width: 0; width: 252px; margin-top: 6px; }
+.inv-left .keys .row { padding: 4px 0; }
+.inv h3 { margin: 0 0 3px; }
+
+#weaponSlots {
+  display: grid;
+  grid-template-columns: repeat(4, 60px);
+  gap: 4px;
+}
+#weaponSlots .slot { width: 60px; height: 60px; }
 
 #equipSlots {
   display: grid;
-  grid-template-columns: repeat(3, 90px);
-  gap: 9px;
+  grid-template-columns: repeat(3, 81px);
+  gap: 4px;
 }
-#equipSlots .slot { width: 90px; height: 72px; }
+#equipSlots .slot { width: 81px; height: 60px; }
+
+.inv-mid { width: 236px; }
+#affinityPanel { display: flex; flex-direction: column; gap: 4px; }
+.aff {
+  --ec: var(--muted);
+  padding: 5px 7px;
+  background: #1f0e17;
+  border-left: var(--px) solid var(--ec);
+  font-size: 6px;
+  line-height: 1.6;
+}
+.aff.dim { opacity: 0.45; }
+.aff-head { display: flex; justify-content: space-between; font-size: 8px; margin-bottom: 2px; color: var(--cream); }
+.aff-name { color: var(--ec); }
+.aff-bonus { color: #6a5058; }
+.aff-bonus.on { color: var(--ec); }
 
 #bagGrid {
   display: grid;
-  grid-template-columns: repeat(6, 60px);
-  gap: 6px;
+  grid-template-columns: repeat(6, 52px);
+  gap: 4px;
 }
-#bagGrid .slot { width: 60px; height: 60px; }
+#bagGrid .slot { width: 52px; height: 52px; }
+.slot.weapon .item-icon { width: 40px; height: 40px; }
 
 .slot {
   --rc: var(--panel-light);
@@ -245,3 +271,6 @@ button.small { font-size: 8px; padding: 8px 12px; min-width: 0; }
 .tt-stat { color: var(--green-light); }
 .tt-divider { margin: 9px 0 4px; padding-top: 6px; border-top: 2px solid var(--panel-light); color: var(--muted); }
 .tt-hint { margin-top: 8px; color: var(--gold); }
+.tt-el { margin-bottom: 4px; }
+.tt-mut { color: #ffb0ff; }
+.weapon-card .desc { color: var(--cream); }

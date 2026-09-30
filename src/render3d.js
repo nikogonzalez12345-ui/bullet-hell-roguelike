@@ -28,6 +28,31 @@ function toWorld(simX, simY) {
 // Sim facing angle (direction cos a, sin a in sim x/y) -> model yaw (models face +Z).
 const facingToYaw = (a) => Math.PI / 2 - a;
 
+// Projectile looks. Long shapes are modelled along +Z and turned to face
+// their heading; flat throwables spin. `k` maps sim radius -> world size.
+function flatShape(points) {
+  const s = new THREE.Shape();
+  points.forEach(([x, y], i) => (i ? s.lineTo(x, y) : s.moveTo(x, y)));
+  const g = new THREE.ShapeGeometry(s);
+  g.rotateX(-Math.PI / 2);
+  return g;
+}
+const PROJECTILE_SHAPES = {
+  orb:     { k: 1.0, geo: () => new THREE.IcosahedronGeometry(1, 0), max: 2500 },
+  pellet:  { k: 0.8, geo: () => new THREE.BoxGeometry(1, 1, 1.8) },
+  tracer:  { k: 0.7, geo: () => new THREE.BoxGeometry(0.55, 0.55, 5) },
+  beam:    { k: 0.7, geo: () => new THREE.BoxGeometry(0.4, 0.4, 10) },
+  rail:    { k: 0.7, geo: () => new THREE.BoxGeometry(0.5, 0.5, 18), max: 60 },
+  slug:    { k: 0.9, geo: () => { const g = new THREE.CylinderGeometry(0.8, 0.8, 2, 6); g.rotateX(Math.PI / 2); return g; } },
+  star:    { k: 1.0, flat: true, spin: 18, max: 200,
+             geo: () => flatShape([...Array(8)].map((_, i) => { const a = (i / 8) * Math.PI * 2, r = i % 2 ? 0.35 : 1; return [Math.cos(a) * r, Math.sin(a) * r]; })) },
+  kunai:   { k: 0.9, geo: () => { const g = new THREE.OctahedronGeometry(1, 0); g.scale(0.45, 0.25, 2); return g; } },
+  axe:     { k: 1.0, flat: true, spin: 14, max: 60,
+             geo: () => flatShape([[-0.12, -1], [0.12, -1], [0.12, 0.2], [0.9, 0.1], [1, 0.9], [0.12, 0.8], [0.12, 1], [-0.12, 1]]) },
+  rocket:  { k: 0.7, max: 200, geo: () => { const g = new THREE.CylinderGeometry(0.35, 0.7, 3, 6); g.rotateX(Math.PI / 2); return g; } },
+  grenade: { k: 0.8, max: 100, geo: () => new THREE.DodecahedronGeometry(1, 0) },
+};
+
 // Ease a model's yaw toward `target` (shortest way round) instead of snapping.
 function turnModel(model, target, rate, dt) {
   if (model.yaw === undefined) model.yaw = target;
@@ -66,10 +91,14 @@ class Renderer3D {
   }
 
   buildInstanced() {
-    const orb = new THREE.IcosahedronGeometry(1, 0);
-    this.bulletMesh = new THREE.InstancedMesh(orb, ps1Material({ unlit: true, fog: false }), MAX_BULLETS);
-    this.glowMesh = new THREE.InstancedMesh(orb, ps1Material({
-      unlit: true, fog: false, transparent: true, additive: true, opacity: 0.35, depthWrite: false,
+    // One instanced mesh per projectile shape (see PROJECTILE_SHAPES).
+    this.shapeMeshes = {};
+    for (const [name, def] of Object.entries(PROJECTILE_SHAPES)) {
+      const mesh = new THREE.InstancedMesh(def.geo(), ps1Material({ unlit: true, fog: false, doubleSide: !!def.flat }), def.max || 600);
+      this.shapeMeshes[name] = mesh;
+    }
+    this.glowMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), ps1Material({
+      unlit: true, fog: false, transparent: true, additive: true, opacity: 0.28, depthWrite: false,
     }), MAX_BULLETS);
     this.particleMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), ps1Material({ unlit: true }), MAX_PARTICLES);
     this.gemMesh = new THREE.InstancedMesh(new THREE.OctahedronGeometry(1, 0), ps1Material({ unlit: true }), MAX_GEMS);
@@ -80,11 +109,10 @@ class Renderer3D {
       color: "#000000", unlit: true, transparent: true, opacity: 0.45, depthWrite: false,
     }), MAX_SHADOWS);
 
+    const instanced = [...Object.values(this.shapeMeshes), this.glowMesh, this.particleMesh, this.gemMesh];
     // instanceColor must exist before first compile so USE_INSTANCING_COLOR is defined.
-    for (const m of [this.bulletMesh, this.glowMesh, this.particleMesh, this.gemMesh]) {
-      m.setColorAt(0, cachedColor("#ffffff"));
-    }
-    for (const m of [this.bulletMesh, this.glowMesh, this.particleMesh, this.gemMesh, this.shadowMesh]) {
+    for (const m of instanced) m.setColorAt(0, cachedColor("#ffffff"));
+    for (const m of [...instanced, this.shadowMesh]) {
       m.frustumCulled = false;
       m.count = 0;
       this.scene.add(m);
@@ -94,6 +122,46 @@ class Renderer3D {
     this.beamGeo.translate(0, 3.5, 0);
     this.beamMats = new Map();
     this.spriteMats = new Map();
+    this.buildEffectPools();
+  }
+
+  // Pooled meshes for melee arcs, explosions and puddles (each needs its own
+  // material for colour/opacity), plus one dynamic line buffer for lightning.
+  buildEffectPools() {
+    const pool = (n, make) => Array.from({ length: n }, () => {
+      const m = make();
+      m.visible = false;
+      m.frustumCulled = false;
+      this.scene.add(m);
+      return m;
+    });
+    const fxMat = (opts) => ps1Material({ unlit: true, fog: false, transparent: true, depthWrite: false, ...opts });
+    this.arcGeos = new Map();
+    this.swingPool = pool(12, () => new THREE.Mesh(this.arcGeo(Math.PI), fxMat({ additive: true, doubleSide: true })));
+    const sphere = new THREE.IcosahedronGeometry(1, 1);
+    this.blastPool = pool(40, () => new THREE.Mesh(sphere, fxMat({ additive: true })));
+    const disc = new THREE.CircleGeometry(1, 12);
+    disc.rotateX(-Math.PI / 2);
+    this.puddlePool = pool(40, () => new THREE.Mesh(disc, fxMat({ opacity: 0.55 })));
+
+    const maxVerts = 160 * 10;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(maxVerts * 3), 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(maxVerts * 3), 3));
+    this.boltLines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true }));
+    this.boltLines.frustumCulled = false;
+    this.scene.add(this.boltLines);
+  }
+
+  // Flat ring sector centred on +Z, outer radius 1.
+  arcGeo(arc) {
+    const key = Math.round(arc * 100);
+    if (!this.arcGeos.has(key)) {
+      const g = new THREE.RingGeometry(0.35, 1, 18, 1, Math.PI / 2 - arc / 2, arc);
+      g.rotateX(Math.PI / 2);
+      this.arcGeos.set(key, g);
+    }
+    return this.arcGeos.get(key);
   }
 
   // ---------------------------------------------------------------------
@@ -219,8 +287,17 @@ class Renderer3D {
       turnModel(model, facingToYaw(rolling ? Math.atan2(p.rollDirY, p.rollDirX) : p.aimAngle), 22, dt);
       model.update(dt, { moving: p.moving, rollProgress: p.rollProgress });
       model.setBackpackSize(p.backpackSlots);
+      // Rebuild armor + weapon visuals whenever the loadout changes.
+      if (model.gearVersion !== p.gearVersion) {
+        model.gearVersion = p.gearVersion;
+        model.setGear(p.equipped);
+        model.setWeapons(p.weaponSlots);
+        if (!model.floatGroup.parent) this.scene.add(model.floatGroup);
+      }
+      model.updateWeapons(model.root.position, model.yaw, p.weaponFx);
       const blink = p.iframeTimer > 0 && !rolling && Math.floor(p.iframeTimer * 20) % 2 === 0;
       model.root.visible = !blink;
+      model.floatGroup.visible = !blink;
       this.addShadow(p.x, p.y, 0.55);
     }
 
@@ -229,8 +306,11 @@ class Renderer3D {
       const model = this.modelFor(e, e.type);
       model.root.position.copy(toWorld(e.x, e.y));
       turnModel(model, facingToYaw(angleTo(e.x, e.y, p.x, p.y)), 8, dt);
-      model.update(dt, { moving: true });
-      model.flash(e.hitFlash > 0 ? 0.85 : 0);
+      model.update(dt, { moving: e.slowMul > 0 });
+      // Hit flash wins; otherwise tint by the strongest status (frozen, burning…).
+      if (e.hitFlash > 0) model.flash(0.85, "#ffffff");
+      else if (e.tint) model.flash(e.tint[1], e.tint[0]);
+      else model.flash(0);
       this.addShadow(e.x, e.y, e.radius * WORLD_SCALE * 1.3);
     }
 
@@ -238,7 +318,9 @@ class Renderer3D {
       if (!model.seen) {
         this.scene.remove(model.root);
         if (model.trailGroup) this.scene.remove(model.trailGroup);
+        if (model.floatGroup) this.scene.remove(model.floatGroup);
         model.dispose();
+        if (model.disposeExtras) model.disposeExtras();
         this.models.delete(entity);
       }
     }
@@ -330,33 +412,132 @@ class Renderer3D {
   // ---------------------------------------------------------------------
 
   syncBullets(game) {
-    let n = 0, g = 0;
-    this.tmpQ.identity();
+    const counts = {};
+    for (const k in this.shapeMeshes) counts[k] = 0;
+    let g = 0;
     const cam = this.camera.position;
-    for (const b of game.bullets) {
-      if (n >= MAX_BULLETS) break;
-      const wx = b.x * WORLD_SCALE, wz = b.y * WORLD_SCALE;
-      this.tmpP.set(wx, terrainHeight(wx, wz) + BULLET_HEIGHT, wz);
-      const r = b.radius * WORLD_SCALE * 1.4;
-      const c = cachedColor(b.color);
+    const draw = (x, y, radius, color, shape, heading, age, lift, isEnemy) => {
+      const def = PROJECTILE_SHAPES[shape] || PROJECTILE_SHAPES.orb;
+      const mesh = this.shapeMeshes[shape] || this.shapeMeshes.orb;
+      const i = counts[shape] || 0;
+      if (i >= mesh.instanceMatrix.count) return;
+      const wx = x * WORLD_SCALE, wz = y * WORLD_SCALE;
+      this.tmpP.set(wx, terrainHeight(wx, wz) + BULLET_HEIGHT + lift, wz);
+      const r = radius * WORLD_SCALE * def.k;
       this.tmpS.set(r, r, r);
+      if (def.spin) this.tmpE.set(0, age * def.spin, 0);
+      else if (shape === "grenade") this.tmpE.set(age * 8, age * 6, 0);
+      else this.tmpE.set(0, heading, 0);
+      this.tmpQ.setFromEuler(this.tmpE);
       this.tmpM.compose(this.tmpP, this.tmpQ, this.tmpS);
-      this.bulletMesh.setMatrixAt(n, this.tmpM);
-      this.bulletMesh.setColorAt(n++, c);
-      // A glow halo right next to the lens fills the screen — skip it there.
-      if (this.tmpP.distanceToSquared(cam) > 16) {
-        this.tmpS.multiplyScalar(2.3);
+      const c = cachedColor(color);
+      mesh.setMatrixAt(i, this.tmpM);
+      mesh.setColorAt(i, c);
+      counts[shape] = i + 1;
+      // Soft halo; skipped right next to the lens where it would fill the screen.
+      if (g < MAX_BULLETS && this.tmpP.distanceToSquared(cam) > 16) {
+        const h = radius * WORLD_SCALE * (isEnemy ? 1.7 : 1.5);
+        this.tmpS.set(h, h, h);
+        this.tmpQ.identity();
         this.tmpM.compose(this.tmpP, this.tmpQ, this.tmpS);
         this.glowMesh.setMatrixAt(g, this.tmpM);
         this.glowMesh.setColorAt(g++, c);
       }
+    };
+
+    for (const b of game.bullets) {
+      const heading = Math.atan2(b.vx, b.vy);
+      const lift = b.lob ? Math.sin(Math.PI * Math.min(1, b.age / b.maxLife)) * 2.4 : 0;
+      draw(b.x, b.y, b.radius, b.color, b.shape, heading, b.age, lift, b.owner === "enemy");
     }
-    this.bulletMesh.count = n;
+    for (const o of game.orbitals) draw(o.x, o.y, 7, ELEMENTS.light.light, "orb", 0, 0, 0.3, false);
+
+    for (const [k, mesh] of Object.entries(this.shapeMeshes)) {
+      mesh.count = counts[k];
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.instanceColor.needsUpdate = true;
+    }
     this.glowMesh.count = g;
-    for (const m of [this.bulletMesh, this.glowMesh]) {
-      m.instanceMatrix.needsUpdate = true;
-      m.instanceColor.needsUpdate = true;
+    this.glowMesh.instanceMatrix.needsUpdate = true;
+    this.glowMesh.instanceColor.needsUpdate = true;
+  }
+
+  // Melee arcs, explosions, slime puddles and chain lightning.
+  syncEffects(game) {
+    const worldAt = (x, y, h) => {
+      const wx = x * WORLD_SCALE, wz = y * WORLD_SCALE;
+      return this.tmpP.set(wx, terrainHeight(wx, wz) + h, wz);
+    };
+
+    this.swingPool.forEach((m, i) => {
+      const s = game.swings[i];
+      m.visible = !!s;
+      if (!s) return;
+      const u = s.t / s.dur;
+      m.geometry = this.arcGeo(s.arc);
+      m.position.copy(worldAt(s.x, s.y, 1.1));
+      // Sweep a little across the arc as it fades, in the swing's direction.
+      m.rotation.set(0, facingToYaw(s.angle) + (s.mirror ? -1 : 1) * (0.5 - u) * 0.5, 0);
+      m.scale.setScalar(s.range * WORLD_SCALE * (0.9 + 0.15 * u));
+      m.material.uniforms.baseColor.value.set(s.color);
+      m.material.uniforms.opacity.value = 0.9 * (1 - u);
+    });
+
+    this.blastPool.forEach((m, i) => {
+      const b = game.blasts[game.blasts.length - 1 - i];
+      m.visible = !!b;
+      if (!b) return;
+      const u = b.t / b.dur;
+      m.position.copy(worldAt(b.x, b.y, 0.6));
+      m.scale.setScalar(b.r * WORLD_SCALE * (0.35 + 0.65 * (1 - (1 - u) * (1 - u))));
+      m.material.uniforms.baseColor.value.set(b.color);
+      m.material.uniforms.opacity.value = 0.5 * (1 - u);
+    });
+
+    this.puddlePool.forEach((m, i) => {
+      const p = game.puddles[i];
+      m.visible = !!p;
+      if (!p) return;
+      const grow = Math.min(1, p.t / 0.2) * Math.min(1, (p.dur - p.t) / 0.4);
+      m.position.copy(worldAt(p.x, p.y, 0.06));
+      m.scale.setScalar(p.r * WORLD_SCALE * grow);
+      m.material.uniforms.baseColor.value.set(ELEMENTS.slime.color);
+    });
+
+    // Lightning: jagged 5-segment polylines, re-jittered every few frames.
+    const pos = this.boltLines.geometry.attributes.position;
+    const col = this.boltLines.geometry.attributes.color;
+    let v = 0;
+    const flicker = Math.floor(performance.now() / 50);
+    for (const b of game.bolts) {
+      if (v + 10 > pos.count) break;
+      const a = worldAt(b.x1, b.y1, 1.2).clone();
+      const z = worldAt(b.x2, b.y2, 1.2).clone();
+      const c = cachedColor(b.color);
+      let prev = a;
+      for (let s = 1; s <= 5; s++) {
+        const t = s / 5;
+        const n = s === 5 ? z : new THREE.Vector3(
+          lerp(a.x, z.x, t) + (Math.sin(b.seed + s * 12.9 + flicker) * 0.35),
+          lerp(a.y, z.y, t) + (Math.sin(b.seed + s * 7.3 + flicker) * 0.3),
+          lerp(a.z, z.z, t) + (Math.cos(b.seed + s * 4.1 + flicker) * 0.35)
+        );
+        pos.setXYZ(v, prev.x, prev.y, prev.z); col.setXYZ(v++, c.r, c.g, c.b);
+        pos.setXYZ(v, n.x, n.y, n.z); col.setXYZ(v++, c.r, c.g, c.b);
+        prev = n;
+      }
     }
+    this.boltLines.geometry.setDrawRange(0, v);
+    pos.needsUpdate = true;
+    col.needsUpdate = true;
+  }
+
+  // Overlay-pixel position of a sim point at height h (for popups).
+  projectPoint(x, y, h) {
+    const wx = x * WORLD_SCALE, wz = y * WORLD_SCALE;
+    const v = new THREE.Vector3(wx, terrainHeight(wx, wz) + h, wz).project(this.camera);
+    if (v.z > 1) return null;
+    return { x: Math.round((v.x + 1) / 2 * CANVAS_W), y: Math.round(VIEW_TOP + (1 - v.y) / 2 * VIEW_H) };
   }
 
   syncParticles(game) {
@@ -388,6 +569,7 @@ class Renderer3D {
     this.syncLoot(game, time);
     this.syncGems(game, time);
     this.syncBullets(game);
+    this.syncEffects(game);
     this.syncParticles(game);
     this.shadowMesh.count = this.shadows;
     this.shadowMesh.instanceMatrix.needsUpdate = true;

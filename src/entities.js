@@ -55,12 +55,17 @@ class Player {
     this.vy = 0;
     this.justRolled = false;
 
-    this.weapons = ["pistol"];
-    this.weaponCooldowns = { pistol: 0 };
+    // Weapons: slot 0 in hand, 1-3 floating. Starts with a plain pistol.
+    this.weaponSlots = new Array(WEAPON_SLOTS).fill(null);
+    this.weaponSlots[0] = makeWeapon({ base: "service", element: "none", rarity: "common" });
+    this.weaponCd = new Array(WEAPON_SLOTS).fill(0);
+    this.weaponFx = Array.from({ length: WEAPON_SLOTS }, () => ({ kick: 0, swing: 0, element: null }));
+    this.attackQueue = []; // queued follow-ups: burst shots, echoes, twin swings
 
     this.backpackSlots = PLAYER.backpackSlots;
     this.backpack = [];
     this.equipped = Object.fromEntries(EQUIP_SLOTS.map((s) => [s, null]));
+    this.affinity = Object.fromEntries(ELEMENT_IDS.map((e) => [e, 0]));
 
     this.level = 1;
     this.xp = 0;
@@ -77,6 +82,7 @@ class Player {
     this.facing = 0;
     this.aimAngle = 0;
     this.moving = false;
+    this.recalcGear(); // sets affinity + gearVersion for the starting loadout
   }
 
   g(key) { return this.gear[key] || 0; }
@@ -95,15 +101,23 @@ class Player {
   get rollReady() { return this.rollCooldownTimer <= 0; }
   get backpackFull() { return this.backpack.length >= this.backpackSlots; }
 
+  // Recompute stat totals and element affinity from everything equipped.
   recalcGear() {
     const totals = {};
-    for (const item of Object.values(this.equipped)) {
+    const aff = Object.fromEntries(ELEMENT_IDS.map((e) => [e, 0]));
+    for (const item of [...Object.values(this.equipped), ...this.weaponSlots]) {
       if (!item) continue;
       for (const [k, v] of Object.entries(item.stats)) totals[k] = (totals[k] || 0) + v;
+      if (item.element && item.element !== "none") aff[item.element] += 1;
     }
     this.gear = totals;
+    this.affinity = aff;
     this.hp = Math.min(this.hp, this.maxHp);
+    this.gearVersion = (this.gearVersion || 0) + 1; // lets the renderer rebuild visuals
   }
+
+  tier(el) { return affinityTier(this.affinity[el] || 0); }
+  potency(el) { return 1 + 0.15 * (this.affinity[el] || 0); }
 
   // Armor gives diminishing damage reduction: 50 armor = 1/3 less damage.
   takeDamage(amount) {
@@ -117,11 +131,57 @@ class Player {
     return true;
   }
 
-  addWeapon(id) {
-    if (this.weapons.includes(id) || this.weapons.length >= MAX_EQUIPPED_WEAPONS) return false;
-    this.weapons.push(id);
-    this.weaponCooldowns[id] = 0;
+  // ---- Weapons -----------------------------------------------------------
+
+  // A new weapon goes straight into a free slot, else into the backpack.
+  addWeaponItem(item) {
+    const free = this.weaponSlots.indexOf(null);
+    if (free >= 0) {
+      this.weaponSlots[free] = item;
+      this.weaponCd[free] = 0;
+      this.recalcGear();
+      return "equipped";
+    }
+    return this.addToBackpack(item) ? "backpack" : false;
+  }
+
+  unequipWeapon(slot) {
+    const item = this.weaponSlots[slot];
+    const armed = this.weaponSlots.filter(Boolean).length;
+    if (!item || armed <= 1 || this.backpackFull) return false;
+    this.weaponSlots[slot] = null;
+    this.backpack.push(item);
+    this.recalcGear();
     return true;
+  }
+
+  queueAttack(slot, delay, opts) {
+    this.attackQueue.push({ slot, t: delay, opts });
+  }
+
+  // Cooldowns, firing and queued follow-up attacks for every equipped weapon.
+  updateWeapons(dt, game, firing) {
+    for (let s = 0; s < WEAPON_SLOTS; s++) {
+      const fx = this.weaponFx[s];
+      fx.kick = Math.max(0, fx.kick - dt * 8);
+      fx.swing = Math.max(0, fx.swing - dt * 5);
+      const item = this.weaponSlots[s];
+      if (!item) continue;
+      if (this.weaponCd[s] > 0) this.weaponCd[s] -= dt;
+      if (firing && this.weaponCd[s] <= 0) {
+        this.weaponCd[s] += 1 / weaponRate(item, this);
+        if (this.weaponCd[s] < 0) this.weaponCd[s] = 0;
+        fireWeapon(game, this, s);
+      }
+    }
+    for (let i = this.attackQueue.length - 1; i >= 0; i--) {
+      const q = this.attackQueue[i];
+      q.t -= dt;
+      if (q.t <= 0) {
+        this.attackQueue.splice(i, 1);
+        fireWeapon(game, this, q.slot, q.opts);
+      }
+    }
   }
 
   // ---- Inventory -------------------------------------------------------
@@ -134,12 +194,23 @@ class Player {
 
   equipFromBackpack(index) {
     const item = this.backpack[index];
-    if (!item || item.kind !== "gear") return;
+    if (!item) return "none";
+    if (item.kind === "weapon") {
+      const free = this.weaponSlots.indexOf(null);
+      if (free < 0) return "slots-full";
+      this.weaponSlots[free] = item;
+      this.weaponCd[free] = 0;
+      this.backpack.splice(index, 1);
+      this.recalcGear();
+      return "equipped";
+    }
+    if (item.kind !== "gear") return "none";
     const current = this.equipped[item.slot];
     this.equipped[item.slot] = item;
     this.backpack.splice(index, 1);
     if (current) this.backpack.splice(index, 0, current);
     this.recalcGear();
+    return "equipped";
   }
 
   unequip(slot) {
@@ -191,9 +262,6 @@ class Player {
 
     if (this.iframeTimer > 0) this.iframeTimer -= dt;
     if (this.rollCooldownTimer > 0) this.rollCooldownTimer -= dt;
-    for (const id of this.weapons) {
-      if (this.weaponCooldowns[id] > 0) this.weaponCooldowns[id] -= dt;
-    }
 
     if (this.regenPerSec > 0 && this.hp < this.maxHp) {
       this.regenAccum += this.regenPerSec * dt;
@@ -248,14 +316,6 @@ class Player {
 
     confineToArena(this);
   }
-
-  tryShoot(bullets, enemies) {
-    for (const id of this.weapons) {
-      if (this.weaponCooldowns[id] > 0) continue;
-      this.weaponCooldowns[id] = 1 / (this.fireRate * WEAPONS[id].fireRateMul);
-      fireWeapon(id, this, bullets, enemies);
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -274,12 +334,43 @@ class Bullet {
     this.owner = opts.owner; // "player" | "enemy"
     this.color = opts.color;
     this.life = opts.life || 4.5;
+    this.maxLife = this.life;
+    this.age = 0;
     this.dead = false;
+    this.expired = false;
     this.homing = opts.homing || 0; // turn rate, radians/sec, 0 = off
     this.target = opts.target || null;
+    // Player-weapon extras (see weapons.js / Game.handleCollisions)
+    this.shape = opts.shape || "orb";
+    this.element = opts.element || null;
+    this.bounce = opts.bounce || 0;
+    this.split = opts.split || 0;
+    this.blast = opts.blast || 0;
+    this.boomerang = !!opts.boomerang;
+    this.lob = !!opts.lob;
+    this.vampiric = !!opts.vampiric;
+    this.shard = !!opts.shard;
+    this.hitIds = this.owner === "player" ? new Set() : null; // never hit the same enemy twice per pass
+    this.returning = false;
+    this.player = opts.player || null;
   }
 
   update(dt) {
+    this.age += dt;
+    // Boomerangs fly out, then curve back to the thrower (and can hit again).
+    if (this.boomerang && this.player) {
+      if (!this.returning && this.age > this.maxLife * 0.45) {
+        this.returning = true;
+        this.hitIds.clear();
+      }
+      if (this.returning) {
+        const a = angleTo(this.x, this.y, this.player.x, this.player.y);
+        const sp = Math.hypot(this.vx, this.vy);
+        this.vx = lerp(this.vx, Math.cos(a) * sp, Math.min(1, dt * 6));
+        this.vy = lerp(this.vy, Math.sin(a) * sp, Math.min(1, dt * 6));
+        if (dist(this.x, this.y, this.player.x, this.player.y) < 20) this.dead = true;
+      }
+    }
     if (this.homing && this.target && this.target.alive !== false) {
       const desired = angleTo(this.x, this.y, this.target.x, this.target.y);
       const current = Math.atan2(this.vy, this.vx);
@@ -294,11 +385,15 @@ class Bullet {
     this.x += this.vx * dt;
     this.y += this.vy * dt;
     this.life -= dt;
-    if (this.life <= 0 || Math.hypot(this.x, this.y) > ARENA_RADIUS + 200) this.dead = true;
-    // Trees and rocks are cover — they stop bullets.
+    if (this.life <= 0 && !this.boomerang) this.expired = true;
+    if (this.expired || Math.hypot(this.x, this.y) > ARENA_RADIUS + 200) this.dead = true;
+    if (this.boomerang && this.age > this.maxLife * 2.5) this.dead = true;
+    // Trees and rocks are cover — they stop bullets (lobbed grenades sail over).
+    if (this.lob) return;
     for (const o of obstaclesNear(this.x, this.y)) {
       if (circleHit(this.x, this.y, this.radius, o.x, o.y, o.r)) {
         this.dead = true;
+        this.expired = true; // rockets still detonate on cover
         break;
       }
     }
@@ -375,16 +470,19 @@ class Enemy {
     this.fireTimer = rand(0.2, def.fireInterval || 1);
     this.orbitAngle = rand(0, Math.PI * 2);
     this.hitFlash = 0;
-  }
-
-  takeDamage(amount) {
-    this.hp -= amount;
-    this.hitFlash = 0.08;
-    if (this.hp <= 0) this.alive = false;
-    return !this.alive;
+    // Elemental state (see elements.js)
+    this.status = newStatus();
+    this.burnDps = 0;
+    this.chill = 0;
+    this.frozenT = 0;
+    this.vulnT = 0;
+    this.curse = 0;
+    this.slowMul = 1;
+    this.tint = null;
   }
 
   fire(player, bullets, dt) {
+    if (this.frozenT > 0) return;
     this.fireTimer -= dt;
     if (this.fireTimer <= 0) {
       this.fireTimer = this.def.fireInterval;
@@ -398,11 +496,12 @@ class Enemy {
 
     const d = dist(this.x, this.y, player.x, player.y);
     const toPlayer = angleTo(this.x, this.y, player.x, player.y);
+    const spd = this.speed * this.slowMul; // chill/slime slow, freeze stops
 
     switch (this.def.behavior) {
       case "chase": {
-        this.x += Math.cos(toPlayer) * this.speed * dt;
-        this.y += Math.sin(toPlayer) * this.speed * dt;
+        this.x += Math.cos(toPlayer) * spd * dt;
+        this.y += Math.sin(toPlayer) * spd * dt;
         break;
       }
       case "keepDistance": {
@@ -411,23 +510,23 @@ class Enemy {
         if (d < range - 20) move += Math.PI;
         else if (d < range + 20) move = null;
         if (move !== null) {
-          this.x += Math.cos(move) * this.speed * dt;
-          this.y += Math.sin(move) * this.speed * dt;
+          this.x += Math.cos(move) * spd * dt;
+          this.y += Math.sin(move) * spd * dt;
         }
         if (d < 700) this.fire(player, bullets, dt);
         break;
       }
       case "orbit": {
-        this.orbitAngle += dt * 0.8;
+        this.orbitAngle += dt * 0.8 * this.slowMul;
         const tx = player.x + Math.cos(this.orbitAngle) * this.def.preferredRange;
         const ty = player.y + Math.sin(this.orbitAngle) * this.def.preferredRange;
         // Close in at normal speed when far; orbit smoothly once near.
         if (d > 400) {
-          this.x += Math.cos(toPlayer) * this.speed * 1.5 * dt;
-          this.y += Math.sin(toPlayer) * this.speed * 1.5 * dt;
+          this.x += Math.cos(toPlayer) * spd * 1.5 * dt;
+          this.y += Math.sin(toPlayer) * spd * 1.5 * dt;
         } else {
-          this.x = lerp(this.x, tx, clamp(dt * 2, 0, 1));
-          this.y = lerp(this.y, ty, clamp(dt * 2, 0, 1));
+          this.x = lerp(this.x, tx, clamp(dt * 2 * this.slowMul, 0, 1));
+          this.y = lerp(this.y, ty, clamp(dt * 2 * this.slowMul, 0, 1));
           this.fire(player, bullets, dt);
         }
         break;
@@ -437,7 +536,7 @@ class Enemy {
         let move = toPlayer + Math.PI / 2; // strafe
         if (d > range + 40) move = toPlayer;
         else if (d < range - 40) move = toPlayer + Math.PI;
-        const sp = d > 700 ? this.speed * 2.5 : this.speed;
+        const sp = d > 700 ? spd * 2.5 : spd;
         this.x += Math.cos(move) * sp * dt;
         this.y += Math.sin(move) * sp * dt;
         if (d < 800) this.fire(player, bullets, dt);

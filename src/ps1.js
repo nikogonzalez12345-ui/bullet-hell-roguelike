@@ -98,6 +98,7 @@ const PS1_FRAGMENT = `
   uniform vec3 baseColor;
   uniform float unlit;
   uniform float flash;
+  uniform vec3 flashColor;
   uniform float opacity;
   uniform vec3 fogColor;
   uniform float fogNear;
@@ -131,7 +132,7 @@ const PS1_FRAGMENT = `
       c *= t.rgb;
     }
     if (unlit < 0.5) c *= vLight;
-    c = mix(c, vec3(1.0), flash);
+    c = mix(c, flashColor, flash);
     c = mix(c, fogColor, smoothstep(fogNear, fogFar, vFogDepth));
     gl_FragColor = vec4(ps1Quantize(c), opacity);
   }
@@ -145,6 +146,7 @@ function ps1Material(opts = {}) {
       baseColor: { value: new THREE.Color(opts.color || "#ffffff") },
       unlit: { value: opts.unlit ? 1 : 0 },
       flash: { value: 0 },
+      flashColor: { value: new THREE.Color("#ffffff") },
       opacity: { value: opts.opacity !== undefined ? opts.opacity : 1 },
       uvScale: { value: opts.uvScale || new THREE.Vector2(1, 1) },
       uvOffset: { value: new THREE.Vector2(0, 0) },

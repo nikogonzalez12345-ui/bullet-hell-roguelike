@@ -83,6 +83,7 @@ class Hud {
     this.drawXp(ctx, game);
     this.drawHints(ctx, game);
     this.drawMessages(ctx, dt);
+    this.drawPopups(ctx, game);
     if (game.state === STATE.PLAYING) {
       this.drawLock(ctx, game);
       const mode = game.aimTarget ? "lock" : game.aimBlocked ? "blocked" : "free";
@@ -105,23 +106,59 @@ class Hud {
     hudBar(ctx, x + 42, y + 36, 264, 15, energy, UI.energy, 12);
     if (p.rollReady) hudText(ctx, "READY", x + 296, y + 40, 8, UI.ink, "right");
 
-    // Weapon chips
-    let cx = x;
-    for (const id of p.weapons) {
-      const w = WEAPONS[id];
-      const label = w.name.toUpperCase();
+    // Weapon chips: one row per slot, in the weapon's element colour, with
+    // a star per mutation.
+    let wy = y + 72;
+    p.weaponSlots.forEach((item, i) => {
+      if (!item) return;
+      const el = elementOf(item.element);
+      const label = `${i + 1} ${WEAPON_BASES[item.base].name.toUpperCase()}${"*".repeat(item.mutations.length)}`;
       const cw = label.length * 8 + 18;
       ctx.fillStyle = UI.ink;
-      ctx.fillRect(cx, y + 72, cw, 18);
-      ctx.fillStyle = w.color;
-      ctx.fillRect(cx + PX, y + 72 + PX, PX, 12);
-      hudText(ctx, label, cx + 12, y + 77, 8, w.color);
-      cx += cw + 6;
-    }
+      ctx.fillRect(x, wy, cw, 18);
+      ctx.fillStyle = el.color;
+      ctx.fillRect(x + PX, wy + PX, PX, 12);
+      hudText(ctx, label, x + 12, wy + 5, 8, item.mutations.length ? el.light : el.color);
+      wy += 21;
+    });
     if (game.autoFire) {
       ctx.fillStyle = UI.gold;
-      ctx.fillRect(cx, y + 72, 66, 18);
-      hudText(ctx, "AUTO", cx + 33, y + 77, 8, UI.ink, "center");
+      ctx.fillRect(x, wy, 66, 18);
+      hudText(ctx, "AUTO", x + 33, wy + 5, 8, UI.ink, "center");
+      wy += 21;
+    }
+    this.drawAffinity(ctx, p, x, wy + 3);
+  }
+
+  // Element affinity tiles: colour, item count, and one pip per unlocked tier.
+  drawAffinity(ctx, p, x, y) {
+    let cx = x;
+    for (const id of ELEMENT_IDS) {
+      const n = p.affinity[id];
+      if (!n) continue;
+      const el = ELEMENTS[id];
+      ctx.fillStyle = UI.ink;
+      ctx.fillRect(cx, y, 30, 27);
+      ctx.fillStyle = el.dark;
+      ctx.fillRect(cx + 2, y + 2, 26, 23);
+      hudText(ctx, String(n), cx + 15, y + 5, 8, el.light, "center");
+      const tier = affinityTier(n);
+      for (let t = 0; t < 3; t++) {
+        ctx.fillStyle = t < tier ? el.color : UI.ink;
+        ctx.fillRect(cx + 5 + t * 7, y + 17, 5, 5);
+      }
+      cx += 33;
+    }
+  }
+
+  // Reaction names pop above the enemy they happened on.
+  drawPopups(ctx, game) {
+    for (const pop of game.popups) {
+      const at = game.renderer.projectPoint(pop.x, pop.y, pop.h + pop.t * 1.5);
+      if (!at) continue;
+      ctx.globalAlpha = clamp((pop.dur - pop.t) / 0.3, 0, 1);
+      hudText(ctx, pop.text, at.x, at.y, 8, pop.color, "center");
+      ctx.globalAlpha = 1;
     }
   }
 

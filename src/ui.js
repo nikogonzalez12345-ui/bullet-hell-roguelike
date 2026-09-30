@@ -29,6 +29,8 @@ class GameUI {
       cards: $("upgradeCards"),
       levelUpSub: $("levelUpSub"),
       equip: $("equipSlots"),
+      weapons: $("weaponSlots"),
+      affinity: $("affinityPanel"),
       stats: $("statsPanel"),
       bag: $("bagGrid"),
       bagTitle: $("bagTitle"),
@@ -61,9 +63,9 @@ class GameUI {
     this.el.cards.innerHTML = "";
     for (const u of picks) {
       const card = document.createElement("button");
-      card.className = `card rarity-${u.rarity}`;
+      card.className = `card rarity-${u.rarity}` + (u.weapon ? " weapon-card" : "");
       card.innerHTML = `
-        <div class="icon">${u.icon}</div>
+        <div class="icon" ${u.iconColor ? `style="color:${u.iconColor}"` : ""}>${u.icon}</div>
         <div class="name">${u.name}</div>
         <div class="desc">${u.desc}</div>
         <div class="tag">${u.rarity.toUpperCase()}</div>`;
@@ -85,6 +87,33 @@ class GameUI {
 
   renderInventory() {
     const p = this.game.player;
+
+    this.el.weapons.innerHTML = "";
+    p.weaponSlots.forEach((item, i) => {
+      const cell = document.createElement("div");
+      cell.className = "slot weapon" + (item ? " filled" : "");
+      cell.innerHTML = `<span class="slot-label">${i === 0 ? "HAND" : "W" + (i + 1)}</span>`;
+      if (item) {
+        cell.style.setProperty("--rc", itemColor(item));
+        cell.appendChild(this.iconEl(item));
+        cell.addEventListener("click", () => {
+          if (!p.unequipWeapon(i)) this.game.hud.toast(p.backpackFull ? "BACKPACK FULL" : "KEEP AT LEAST ONE WEAPON", UI.hp.light);
+          this.renderInventory();
+        });
+        this.bindTooltip(cell, item, null, "CLICK: UNEQUIP");
+      }
+      this.el.weapons.appendChild(cell);
+    });
+
+    this.el.affinity.innerHTML = ELEMENT_IDS.map((id) => {
+      const el = ELEMENTS[id];
+      const n = p.affinity[id];
+      const tier = affinityTier(n);
+      const bonuses = AFFINITY_TEXT[id].map((t, k) =>
+        `<div class="aff-bonus ${k < tier ? "on" : ""}">${AFFINITY_TIERS[k]}: ${t.toUpperCase()}</div>`).join("");
+      return `<div class="aff ${n ? "" : "dim"}" style="--ec:${el.color}">
+        <div class="aff-head"><span class="aff-name">${el.name.toUpperCase()}</span><span>${n}</span></div>${bonuses}</div>`;
+    }).join("");
 
     this.el.equip.innerHTML = "";
     for (const slot of EQUIP_SLOTS) {
@@ -119,8 +148,8 @@ class GameUI {
         cell.addEventListener("click", () => {
           if (item.kind === "potion") {
             if (!p.drinkPotion(i)) this.game.hud.toast("ALREADY AT FULL HP", UI.muted);
-          } else {
-            p.equipFromBackpack(i);
+          } else if (p.equipFromBackpack(i) === "slots-full") {
+            this.game.hud.toast("WEAPON SLOTS FULL - UNEQUIP ONE FIRST", UI.hp.light);
           }
           this.renderInventory();
         });
@@ -131,6 +160,7 @@ class GameUI {
         });
         const current = item.kind === "gear" ? p.equipped[item.slot] : null;
         const action = item.kind === "potion" ? "DRINK" : current ? "SWAP" : "EQUIP";
+        if (item.kind === "weapon") cell.classList.add("weapon");
         this.bindTooltip(cell, item, current, `CLICK: ${action} · RMB: DROP`);
       }
       this.el.bag.appendChild(cell);
@@ -144,8 +174,24 @@ class GameUI {
         <div class="tt-sub">CONSUMABLE</div><div class="tt-stat">RESTORES ${Math.round(item.heal * 100)}% HP</div>`;
     }
     const r = RARITY_BY_ID[item.rarity];
+    const el = elementOf(item.element);
+    const elLine = item.element && item.element !== "none"
+      ? `<div class="tt-el" style="color:${el.color}">◆ ${el.name.toUpperCase()}</div>` : "";
+    if (item.kind === "weapon") {
+      const b = WEAPON_BASES[item.base];
+      const p = this.game.player;
+      const muts = item.mutations.map((m) =>
+        `<div class="tt-mut">✦ ${MUTATIONS[m].name.toUpperCase()}: ${MUTATIONS[m].desc.toUpperCase()}</div>`).join("");
+      return `<div class="tt-name" style="color:${r.color}">${item.name.toUpperCase()}</div>
+        <div class="tt-sub">${r.name.toUpperCase()} ${WEAPON_CLASSES[b.cls].name.toUpperCase()} · ILVL ${item.level}</div>
+        ${elLine}
+        <div class="tt-stat">DPS ~${Math.round(weaponDps(item, p))}</div>
+        <div class="tt-stat">${b.cls === "melee" ? "SWINGS" : "ATTACKS"} ${weaponRate(item, p).toFixed(1)}/S</div>
+        ${muts}`;
+    }
     return `<div class="tt-name" style="color:${r.color}">${item.name.toUpperCase()}</div>
       <div class="tt-sub">${r.name.toUpperCase()} ${SLOT_BY_ID[item.slot].name.toUpperCase()} · ILVL ${item.level}</div>
+      ${elLine}
       ${statLines(item.stats).map((l) => `<div class="tt-stat">${l.toUpperCase()}</div>`).join("")}`;
   }
 

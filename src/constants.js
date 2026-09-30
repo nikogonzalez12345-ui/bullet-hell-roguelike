@@ -88,6 +88,7 @@ const AIM = {
 
 const LOOT = {
   itemDropChance: 0.045,
+  weaponDropChance: 0.02,
   potionDropChance: 0.03,
   bossItemDrops: 3,
   pickupRange: 36,
@@ -116,39 +117,4 @@ const UI = {
   energy: { fill: "#f0a81e", light: "#ffe07a", dark: "#9a5a10" },
   xp:     { fill: "#6fae3a", light: "#c8e67a", dark: "#2e5220" },
   boss:   { fill: "#b82a4a", light: "#ff6a8a", dark: "#5a0a20" },
-};
-
-// Weapon archetypes the player can unlock through upgrades. Each fires
-// independently on its own cooldown, scaled by the player's global
-// fireRate/damage stats so generic upgrades still matter.
-const WEAPONS = {
-  pistol: {
-    id: "pistol", name: "Pistol", icon: "•",
-    fireRateMul: 1, damageMul: 1,
-    color: "#a3f7ff",
-  },
-  shotgun: {
-    id: "shotgun", name: "Shotgun", icon: "»",
-    fireRateMul: 0.45, damageMul: 0.4,
-    pellets: 5, spreadDeg: 32, life: 0.35,
-    color: "#ffcf5c",
-  },
-  smg: {
-    id: "smg", name: "SMG", icon: "≡",
-    fireRateMul: 2.6, damageMul: 0.32,
-    jitterDeg: 6,
-    color: "#c9ff5c",
-  },
-  laser: {
-    id: "laser", name: "Laser", icon: "‖",
-    fireRateMul: 0.8, damageMul: 0.85,
-    pierce: 3, speedMul: 1.8, radiusMul: 0.6,
-    color: "#e6f7ff",
-  },
-  missile: {
-    id: "missile", name: "Missile", icon: "✷",
-    fireRateMul: 0.3, damageMul: 2.4,
-    speedMul: 0.55, radiusMul: 1.8, homing: 4.2,
-    color: "#ff8a5b",
-  },
 };
