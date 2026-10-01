@@ -7,14 +7,51 @@ function confineToArena(ent) {
     ent.y *= max / d;
   }
   for (const o of obstaclesNear(ent.x, ent.y)) {
-    const dx = ent.x - o.x, dy = ent.y - o.y;
-    const dd = Math.hypot(dx, dy);
-    const min = o.r + ent.radius;
-    if (dd < min && dd > 0.001) {
-      ent.x = o.x + (dx / dd) * min;
-      ent.y = o.y + (dy / dd) * min;
+    const push = obstaclePush(o, ent.x, ent.y, ent.radius);
+    if (push) {
+      ent.x = push.x;
+      ent.y = push.y;
     }
   }
+}
+
+// Ground movement for enemies that walks around cover instead of grinding
+// into it ("bug" pathing): when the way ahead is blocked, sweep further and
+// further off the target direction in one committed rotation until a probe
+// is clear. Committing stops them dithering at a wall's midpoint; the
+// rotation is forgotten after a stretch of open ground, and reversed after a
+// very long detour so dead-end pockets can't trap them.
+const STEER_OFFSETS = [0.45, 0.9, 1.35, 1.8, 2.25, 2.7];
+
+function steerMove(ent, angle, step) {
+  if (step <= 0) return;
+  const probe = ent.radius + 24;
+  const clear = (a) => !blockedAt(ent.x + Math.cos(a) * probe, ent.y + Math.sin(a) * probe, ent.radius * 0.8);
+  let a = angle;
+  if (!clear(angle)) {
+    if (!ent.steerSide) {
+      // Pick the rotation that frees up first.
+      ent.steerSide = 1;
+      for (const off of STEER_OFFSETS) {
+        if (clear(angle + off)) break;
+        if (clear(angle - off)) { ent.steerSide = -1; break; }
+      }
+    }
+    let found = null;
+    for (const off of STEER_OFFSETS) {
+      if (clear(angle + off * ent.steerSide)) { found = angle + off * ent.steerSide; break; }
+    }
+    if (found === null) { ent.steerSide = -ent.steerSide; found = angle + Math.PI * 0.75 * ent.steerSide; }
+    a = found;
+    ent.steerFree = 0;
+    ent.steerDist = (ent.steerDist || 0) + step;
+    if (ent.steerDist > 800) { ent.steerSide = -ent.steerSide; ent.steerDist = 0; }
+  } else if (ent.steerSide) {
+    ent.steerFree = (ent.steerFree || 0) + step;
+    if (ent.steerFree > 120) { ent.steerSide = 0; ent.steerDist = 0; }
+  }
+  ent.x += Math.cos(a) * step;
+  ent.y += Math.sin(a) * step;
 }
 
 // Global difficulty multipliers, driven by the Director's clock.
@@ -85,6 +122,12 @@ class Player {
     this.staminaDelayT = 0;
     this.winded = false;
     this.xpMul = 1;
+    // Zany level-up mods (upgrades.js): id -> stacks, read by Game hooks.
+    this.mods = {};
+    this.sizeMul = 1;   // Mega Mushroom / Shrink Ray
+    this.shotSize = 1;  // projectile radius multiplier
+    this.jumpMul = 1;   // Moon Boots
+    this.justRevived = false;
     this.rollDirX = 0;
     this.rollDirY = 0;
     this.iframeTimer = 0;
@@ -153,6 +196,13 @@ class Player {
     this.hp -= amount * (100 / (100 + this.armor));
     this.iframeTimer = PLAYER.hitIframes;
     this.hitPulse = PLAYER.hitIframes;
+    if (this.hp <= 0 && this.mods.lazarus > 0) {
+      // Second Heart: spend a stack and come back at half health.
+      this.mods.lazarus -= 1;
+      this.hp = this.maxHp * 0.5;
+      this.iframeTimer = 2;
+      this.justRevived = true;
+    }
     if (this.hp <= 0) {
       this.hp = 0;
       this.alive = false;
@@ -345,7 +395,7 @@ class Player {
         const dy = wantsMove ? my : Math.sin(this.facing);
         this.startRoll(dx, dy);
       } else if (input.jumpPressed && this.h === 0) {
-        this.vh = JUMP.velocity;
+        this.vh = JUMP.velocity * this.jumpMul;
         this.justJumped = true;
       }
     }
@@ -405,6 +455,7 @@ class Bullet {
     this.lob = !!opts.lob;
     this.vampiric = !!opts.vampiric;
     this.shard = !!opts.shard;
+    this.wallBounce = opts.wallBounce || 0;
     this.hitIds = this.owner === "player" ? new Set() : null; // never hit the same enemy twice per pass
     this.returning = false;
     this.player = opts.player || null;
@@ -446,11 +497,23 @@ class Bullet {
     // Trees and rocks are cover — they stop bullets (lobbed grenades sail over).
     if (this.lob) return;
     for (const o of obstaclesNear(this.x, this.y)) {
-      if (circleHit(this.x, this.y, this.radius, o.x, o.y, o.r)) {
-        this.dead = true;
-        this.expired = true; // rockets still detonate on cover
-        break;
+      if (!obstacleHit(o, this.x, this.y, this.radius)) continue;
+      // Rubber Rounds: bounce off cover instead of breaking.
+      if (this.wallBounce > 0) {
+        const push = obstaclePush(o, this.x, this.y, this.radius + 0.5);
+        if (push) {
+          this.wallBounce -= 1;
+          const dot = this.vx * push.nx + this.vy * push.ny;
+          if (dot < 0) { this.vx -= 2 * dot * push.nx; this.vy -= 2 * dot * push.ny; }
+          this.x = push.x; this.y = push.y;
+          if (this.hitIds) this.hitIds.clear();
+          this.life = Math.max(this.life, 0.6);
+          break;
+        }
       }
+      this.dead = true;
+      this.expired = true; // rockets still detonate on cover
+      break;
     }
   }
 }
@@ -584,6 +647,7 @@ class Enemy {
     this.vh = 0;
     this.airBoost = 1; // ground-speed multiplier while airborne (pounces)
     this.jumpCd = rand(1.5, 3.5);
+    this.pouncer = Math.random() < 0.3;
     this.dodgeScan = rand(0, 0.25);
     this.slamming = false;
   }
@@ -635,13 +699,13 @@ class Enemy {
 
     switch (this.def.behavior) {
       case "chase": {
-        // Grunts pounce when they get close.
-        if (d < 170 && this.jumpCd <= 0) {
-          this.jumpCd = rand(2.5, 4.5);
-          this.jump(7.5, 2.1);
+        // Only some grunts pounce, now and then, from mid range (not when
+        // already on top of you).
+        if (this.pouncer && d < 170 && d > 80 && this.jumpCd <= 0) {
+          this.jumpCd = rand(5, 8);
+          if (Math.random() < 0.5) this.jump(6.5, 1.7);
         }
-        this.x += Math.cos(toPlayer) * spd * dt;
-        this.y += Math.sin(toPlayer) * spd * dt;
+        steerMove(this, toPlayer, spd * dt);
         break;
       }
       case "keepDistance": {
@@ -650,10 +714,7 @@ class Enemy {
         let move = toPlayer;
         if (d < range - 20) move += Math.PI;
         else if (d < range + 20) move = null;
-        if (move !== null) {
-          this.x += Math.cos(move) * spd * dt;
-          this.y += Math.sin(move) * spd * dt;
-        }
+        if (move !== null) steerMove(this, move, spd * dt);
         if (d < 700) this.fire(player, bullets, dt);
         break;
       }
@@ -663,8 +724,7 @@ class Enemy {
         const ty = player.y + Math.sin(this.orbitAngle) * this.def.preferredRange;
         // Close in at normal speed when far; orbit smoothly once near.
         if (d > 400) {
-          this.x += Math.cos(toPlayer) * spd * 1.5 * dt;
-          this.y += Math.sin(toPlayer) * spd * 1.5 * dt;
+          steerMove(this, toPlayer, spd * 1.5 * dt);
         } else {
           this.x = lerp(this.x, tx, clamp(dt * 2 * this.slowMul, 0, 1));
           this.y = lerp(this.y, ty, clamp(dt * 2 * this.slowMul, 0, 1));
@@ -676,8 +736,7 @@ class Enemy {
         // Bats weave side to side as they dive at you.
         this.swoopT = (this.swoopT || rand(0, 10)) + dt;
         const weave = Math.sin(this.swoopT * 4) * (d > 120 ? 0.9 : 0.3);
-        this.x += Math.cos(toPlayer + weave) * spd * dt;
-        this.y += Math.sin(toPlayer + weave) * spd * dt;
+        steerMove(this, toPlayer + weave, spd * dt);
         break;
       }
       case "blink": {
@@ -692,9 +751,7 @@ class Enemy {
         }
         const range = this.def.preferredRange;
         if (Math.abs(d - range) > 30) {
-          const move = d > range ? toPlayer : toPlayer + Math.PI;
-          this.x += Math.cos(move) * spd * dt;
-          this.y += Math.sin(move) * spd * dt;
+          steerMove(this, d > range ? toPlayer : toPlayer + Math.PI, spd * dt);
         }
         if (d < 700) this.fire(player, bullets, dt);
         break;
@@ -706,10 +763,7 @@ class Enemy {
           this.jump(6.5, 1);
           this.hopDir = toPlayer + rand(-0.3, 0.3);
         }
-        if (this.h > 0) {
-          this.x += Math.cos(this.hopDir) * spd * 1.8 * dt;
-          this.y += Math.sin(this.hopDir) * spd * 1.8 * dt;
-        }
+        if (this.h > 0) steerMove(this, this.hopDir, spd * 1.8 * dt);
         break;
       }
       case "strafe": {
@@ -720,9 +774,7 @@ class Enemy {
         const tangent = toPlayer + (Math.PI / 2) * this.strafeDir;
         const mx = Math.cos(tangent) * 0.8 + Math.cos(toPlayer) * 0.6 * radial;
         const my = Math.sin(tangent) * 0.8 + Math.sin(toPlayer) * 0.6 * radial;
-        const len = Math.hypot(mx, my) || 1;
-        this.x += (mx / len) * spd * dt;
-        this.y += (my / len) * spd * dt;
+        steerMove(this, Math.atan2(my, mx), spd * dt);
         if (d < 700) this.fire(player, bullets, dt);
         break;
       }
@@ -739,9 +791,7 @@ class Enemy {
         let move = toPlayer + Math.PI / 2; // strafe
         if (d > range + 40 || this.slamming) move = toPlayer;
         else if (d < range - 40) move = toPlayer + Math.PI;
-        const sp = d > 700 ? spd * 2.5 : spd;
-        this.x += Math.cos(move) * sp * dt;
-        this.y += Math.sin(move) * sp * dt;
+        steerMove(this, move, (d > 700 ? spd * 2.5 : spd) * dt);
         if (d < 800) this.fire(player, bullets, dt);
         break;
       }

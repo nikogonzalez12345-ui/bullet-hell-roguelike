@@ -337,6 +337,48 @@ function buildTextures() {
     ctx.fillStyle = "#8a8478"; ctx.fillRect(0, 0, s, s);
     speckle(ctx, s, ["#76706a", "#9a948a", "#6a645c"], 60, 1, 2);
   });
+  // ---- Buildings ----
+  // Masonry: offset courses of blocks with dark mortar lines.
+  const masonry = (base, shades, mortar, rows) => (ctx, s) => {
+    ctx.fillStyle = base; ctx.fillRect(0, 0, s, s);
+    speckle(ctx, s, shades, 50, 1, 2);
+    const rh = s / rows;
+    ctx.fillStyle = mortar;
+    for (let r = 0; r < rows; r++) {
+      const y = Math.floor(r * rh);
+      ctx.fillRect(0, y, s, TEX_DETAIL);
+      const off = r % 2 ? s / 4 : 0;
+      for (let x = off; x < s + off; x += s / 2) ctx.fillRect(Math.floor(x % s), y, TEX_DETAIL, Math.ceil(rh));
+    }
+  };
+  TEX.stoneWall = makeTexture(16, masonry("#8a8478", ["#76706a", "#9a948a", "#6a645c", "#5a6a4a"], "#4a4640", 4));
+  TEX.obsidianWall = makeTexture(16, masonry("#241a30", ["#2e2240", "#18101e", "#4a2a3a"], "#0c0810", 3));
+  TEX.caveWall = makeTexture(16, masonry("#4e4858", ["#3e3848", "#5e5868", "#3a5a6a"], "#24202c", 3));
+  TEX.planks = makeTexture(16, (ctx, s) => {
+    ctx.fillStyle = "#7a5034"; ctx.fillRect(0, 0, s, s);
+    const w = s / 4;
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = ["#6a4428", "#82583a", "#744a2e", "#8a6040"][i];
+      ctx.fillRect(i * w, 0, w - TEX_DETAIL, s);
+    }
+    speckle(ctx, s, ["#4a2e1c", "#9a7050"], 24);
+  });
+  TEX.roofTiles = makeTexture(16, (ctx, s) => {
+    ctx.fillStyle = "#3a3e52"; ctx.fillRect(0, 0, s, s);
+    for (let y = 0; y < s; y += s / 4) {
+      ctx.fillStyle = "#262a3a"; ctx.fillRect(0, y, s, TEX_DETAIL);
+      ctx.fillStyle = "#4e5470"; ctx.fillRect(0, y + TEX_DETAIL, s, TEX_DETAIL);
+    }
+    for (let x = 0; x < s; x += s / 4) { ctx.fillStyle = "#2a2e40"; ctx.fillRect(x, 0, TEX_DETAIL, s); }
+  });
+  TEX.thatch = makeTexture(16, (ctx, s) => {
+    ctx.fillStyle = "#8a6a34"; ctx.fillRect(0, 0, s, s);
+    for (let i = 0; i < 40 * paintDetail; i++) {
+      ctx.fillStyle = ["#6a4e24", "#a8844a", "#7a5c2c"][i % 3];
+      ctx.fillRect(Math.floor(rand(0, s)), Math.floor(rand(0, s)), 1, Math.round(rand(3, 7)));
+    }
+  });
+
   TEX.grassTuft = makeTexture(16, (ctx, s) => {
     ctx.clearRect(0, 0, s, s);
     for (let i = 0; i < 9; i++) {

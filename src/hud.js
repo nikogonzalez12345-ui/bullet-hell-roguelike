@@ -80,6 +80,7 @@ class Hud {
     if (game.state === STATE.MENU) return;
 
     if (game.damageFlash > 0) this.drawDamage(ctx, game.damageFlash);
+    else if (game.bulletTimeT > 0) this.drawDamage(ctx, Math.min(0.35, game.bulletTimeT * 0.35), "#5ab8ff");
     this.drawVitals(ctx, game);
     this.drawClock(ctx, game);
     this.drawBoss(ctx, game);
@@ -319,9 +320,25 @@ class Hud {
     ctx.beginPath(); ctx.arc(ex, ey, ARENA_RADIUS * k, 0, Math.PI * 2); ctx.stroke();
 
     for (const o of OBSTACLES) {
-      if (Math.abs(o.x - p.x) > range || Math.abs(o.y - p.y) > range) continue;
+      if (Math.abs(o.x - p.x) > range + o.r || Math.abs(o.y - p.y) > range + o.r) continue;
+      if (o.hw) {
+        // Walls and buildings: their real outline.
+        ctx.fillStyle = "rgba(150, 140, 120, 0.85)";
+        ctx.beginPath();
+        for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+          const lx = sx * o.hw, ly = sy * o.hh;
+          ctx.lineTo(...toRadar(o.x + lx * o.c - ly * o.s, o.y + lx * o.s + ly * o.c));
+        }
+        ctx.fill();
+        continue;
+      }
       const [ox, oy] = toRadar(o.x, o.y);
-      dot(ox, oy, 3, "rgba(90, 110, 70, 0.8)");
+      if (o.r > 40) {
+        ctx.fillStyle = "rgba(110, 120, 90, 0.75)";
+        ctx.beginPath(); ctx.arc(ox, oy, o.r * k, 0, Math.PI * 2); ctx.fill();
+      } else {
+        dot(ox, oy, 3, "rgba(90, 110, 70, 0.8)");
+      }
     }
     for (const l of game.loot) {
       const [lx, ly] = toRadar(l.x, l.y);
@@ -344,9 +361,9 @@ class Hud {
     ctx.fillRect(cx - 4, cy + 1, 9, 3);
   }
 
-  drawDamage(ctx, flash) {
+  drawDamage(ctx, flash, color = UI.hp.fill) {
     const a = clamp(flash / 0.35, 0, 1);
-    ctx.fillStyle = UI.hp.fill;
+    ctx.fillStyle = color;
     for (let i = 0; i < 4; i++) {
       ctx.globalAlpha = a * (0.45 - i * 0.1);
       const m = i * 9;

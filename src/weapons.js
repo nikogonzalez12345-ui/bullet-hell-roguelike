@@ -180,7 +180,7 @@ function fireWeapon(game, p, slot, opts = {}) {
       game.bullets.push(new Bullet({
         x: origin.x, y: origin.y,
         vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
-        radius: b.size * (giant ? 1.8 : 1),
+        radius: b.size * (giant ? 1.8 : 1) * p.shotSize,
         damage, pierce,
         owner: "player",
         color: elementOf(element).color,
@@ -191,11 +191,24 @@ function fireWeapon(game, p, slot, opts = {}) {
         target: seek ? target || findNearestEnemy(origin.x, origin.y, game.enemies) : null,
         bounce: (b.bounce || 0) + (hasMut(item, "ricochet") ? 2 : 0),
         split: b.split || (hasMut(item, "splitter") ? 3 : 0),
-        blast: b.blast || (hasMut(item, "volatile") ? 55 : 0),
+        blast: b.blast || (hasMut(item, "volatile") ? 55 : 0) || (p.mods.payload ? 50 : 0),
+        wallBounce: (p.mods.rubber || 0) * 2,
         boomerang: !!b.boomerang,
         lob: !!b.lob,
         vampiric: hasMut(item, "vampiric"),
         player: p,
+      }));
+    }
+    // Chaos Barrel: extra shots sprayed in wild directions.
+    const chaos = (p.mods.chaos || 0) * 3;
+    for (let i = 0; i < chaos; i++) {
+      const ang = aim + rand(-0.7, 0.7);
+      const speed = b.speed * (p.bulletSpeed / PLAYER.baseBulletSpeed) * rand(0.75, 1.15);
+      game.bullets.push(new Bullet({
+        x: origin.x, y: origin.y, vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+        radius: b.size * p.shotSize, damage: damage * 0.6, pierce: p.pierce, owner: "player",
+        color: elementOf(element).color, element, shape: b.shape, life: (b.life || 2.2) * 0.8,
+        blast: p.mods.payload ? 40 : 0, wallBounce: (p.mods.rubber || 0) * 2, player: p,
       }));
     }
     if (b.burst && !opts.burst) {

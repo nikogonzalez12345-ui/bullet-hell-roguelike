@@ -92,11 +92,11 @@ const ENEMY_BULLET = {
 
 // The run's internal clock drives difficulty instead of waves.
 const DIRECTOR = {
-  baseSpawnRate: 0.62,     // enemies/sec at 0:00
-  spawnRateGrowth: 0.0135, // + enemies/sec per second survived
-  baseCap: 28,             // max enemies alive at 0:00…
-  capGrowth: 1 / 6,        // …+1 per 6s
-  maxCap: 120,
+  baseSpawnRate: 0.8,      // enemies/sec at 0:00
+  spawnRateGrowth: 0.0175, // + enemies/sec per second survived
+  baseCap: 34,             // max enemies alive at 0:00…
+  capGrowth: 1 / 4.8,      // …+1 per 4.8s
+  maxCap: 145,
   hpBase: 1.1,             // enemy HP multiplier at 0:00…
   hpPerSec: 1 / 135,       // …growing this much per second
   dmgBase: 1.06,           // enemy damage multiplier at 0:00…

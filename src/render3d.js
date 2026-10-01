@@ -302,6 +302,8 @@ class Renderer3D {
     const p = game.player;
     if (p.alive && game.state !== STATE.MENU) {
       const model = this.modelFor(p, "player");
+      if (model.baseScale === undefined) model.baseScale = model.root.scale.x;
+      model.root.scale.setScalar(model.baseScale * p.sizeMul);
       model.root.position.copy(toWorld(p.x, p.y));
       model.root.position.y += p.h;
       const rolling = p.isRolling;
@@ -477,6 +479,7 @@ class Renderer3D {
       draw(b.x, b.y, b.radius, b.color, b.shape, heading, b.age, lift, b.owner === "enemy");
     }
     for (const o of game.orbitals) draw(o.x, o.y, 7, ELEMENTS.light.light, "orb", 0, 0, 0.3, false);
+    for (const m of game.moons) if (m.x !== undefined) draw(m.x, m.y, 6, "#a8c0ff", "orb", 0, 0, 0.5, false);
 
     for (const [k, mesh] of Object.entries(this.shapeMeshes)) {
       mesh.count = counts[k];

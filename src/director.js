@@ -3,6 +3,8 @@
 // spawn rate, how many can be alive, enemy HP/damage, and which types
 // appear. Swarms and bosses punctuate the ramp.
 
+const MELEE_BEHAVIORS = new Set(["chase", "swoop", "hop"]);
+
 class Director {
   constructor(game) {
     this.game = game;
@@ -72,16 +74,18 @@ class Director {
     const t = this.time;
     const st = this.game.stageIndex;
     const base = st === 0 ? 1 : 0.55;
+    // The spawn rate is high, so ranged types are weighted down: more
+    // bodies to cut through, without the screen drowning in bullets.
     const pool = [
-      { type: "grunt", weight: 10 * base },
-      { type: "shooter", weight: t > 30 ? (4 + t / 60) * base : 0 },
-      { type: "sniper", weight: t > 90 ? (2 + t / 90) * base : 0 },
-      { type: "orbiter", weight: t > 150 ? (2 + t / 120) * base : 0 },
+      { type: "grunt", weight: 13 * base },
+      { type: "shooter", weight: t > 30 ? (3 + t / 100) * base : 0 },
+      { type: "sniper", weight: t > 90 ? (1.4 + t / 160) * base : 0 },
+      { type: "orbiter", weight: t > 150 ? (1.4 + t / 200) * base : 0 },
     ];
     const extras = {
-      1: [["bat", 9], ["wisp", 5]],
-      2: [["slime", 8], ["golem", 3], ["bat", 3]],
-      3: [["imp", 8], ["elemental", 4], ["slime", 2]],
+      1: [["bat", 11], ["wisp", 3.5]],
+      2: [["slime", 10], ["golem", 3], ["bat", 4]],
+      3: [["imp", 6], ["elemental", 3], ["slime", 4], ["bat", 3]],
     }[st] || [];
     for (const [type, weight] of extras) pool.push({ type, weight });
     return weightedPick(pool).type;
@@ -107,7 +111,7 @@ class Director {
 
   swarm() {
     const p = this.game.player;
-    const count = 8 + Math.floor(this.time / 40);
+    const count = 10 + Math.floor(this.time / 32);
     const offset = rand(0, Math.PI * 2);
     const type = ["grunt", "bat", "slime", "imp"][this.game.stageIndex] || "grunt";
     for (let i = 0; i < count; i++) {
@@ -123,15 +127,28 @@ class Director {
     this.spawn(type, p.x, p.y, INTENSITY.hp * 0.7 * (1 + loop * 0.6));
   }
 
-  // Stragglers that fall too far behind are recycled back into the fight.
+  // Stragglers that fall too far behind are recycled back into the fight,
+  // and so are melee enemies wedged in cover (no progress for ~5s).
   leash() {
     const p = this.game.player;
     for (const e of this.game.enemies) {
       if (e.isBoss) continue;
-      if (dist(e.x, e.y, p.x, p.y) > DIRECTOR.leashDistance) {
+      const d = dist(e.x, e.y, p.x, p.y);
+      let recycle = d > DIRECTOR.leashDistance;
+      if (MELEE_BEHAVIORS.has(e.def.behavior)) {
+        // Stuck = busy steering around cover without getting any closer.
+        if (e.ckT === undefined) { e.ckT = this.time; e.ckD = d; e.stuck = 0; }
+        if (this.time - e.ckT > 2.5) {
+          e.stuck = e.steerSide && d > 60 && d > e.ckD - 40 ? e.stuck + 1 : 0;
+          e.ckT = this.time; e.ckD = d;
+          if (e.stuck >= 2) { recycle = true; e.stuck = 0; }
+        }
+      }
+      if (recycle) {
         const s = this.spawnPoint(DIRECTOR.spawnMin, DIRECTOR.spawnMax);
         e.x = s.x;
         e.y = s.y;
+        e.steerSide = 0;
       }
     }
   }

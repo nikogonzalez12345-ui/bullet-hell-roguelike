@@ -42,6 +42,11 @@ class Game {
     this.popups = [];
     this.dmgNumbers = [];
     this.orbitals = [];
+    this.moons = [];        // Moon Shield orbiters
+    this.bulletTimeT = 0;   // Bullet Time: enemy shots crawl while > 0
+    this.modTimers = { ring: 5 };
+    this.staticKills = 0;
+    this.corpseBudget = 10;
     this.shakeAmt = 0;  // camera shake strength (world units), decays
     this.hitStop = 0;   // seconds of frozen simulation for impact
     this.gemCombo = 0;
@@ -264,11 +269,21 @@ class Game {
       p.justRolled = false;
       this.dust(p.x, p.y, 10, Math.atan2(-p.rollDirY, -p.rollDirX), 0.9);
       SOUND.play("roll");
+      this.onRoll();
     }
+    if (p.justLanded && p.mods.moonBoots) this.stomp();
     if (p.justJumped || p.justLanded) {
       this.dust(p.x, p.y, p.justLanded ? 12 : 6, 0, Math.PI);
       SOUND.play(p.justLanded ? "land" : "jump");
       p.justJumped = p.justLanded = false;
+    }
+    if (p.justRevived) {
+      p.justRevived = false;
+      this.showBanner("SECOND HEART!", 2, "#ff8aa8");
+      this.clearEnemyBullets(p.x, p.y, 400);
+      this.explode(p.x, p.y, 220, 60 * (p.damage / PLAYER.baseDamage), "light");
+      this.shake(0.8);
+      this.freeze(0.15);
     }
     this.updateAim(dt);
     this.reactionBudget = 40; // caps reaction chains per frame
@@ -290,13 +305,17 @@ class Game {
         this.popup(e, "RISE, MY IMPS", "#ff7a4a");
       }
     }
-    for (const b of this.bullets) b.update(dt);
+    if (this.bulletTimeT > 0) this.bulletTimeT -= dt;
+    const slow = this.bulletTimeT > 0 ? 0.3 : 1;
+    for (const b of this.bullets) b.update(b.owner === "enemy" ? dt * slow : dt);
     for (const pt of this.particles) pt.update(dt);
     for (const gem of this.gems) gem.update(dt, p);
 
     this.handleCollisions();
     this.updateEffects(dt);
     this.updateAffinityBonuses(dt);
+    this.updateMods(dt);
+    this.corpseBudget = 10;
     this.collectPickups();
     this.updateBossTracking();
 
@@ -349,7 +368,7 @@ class Game {
       for (const o of obstaclesNear(lerp(x1, x2, t), lerp(y1, y2, t))) {
         if (checked.has(o)) continue;
         checked.add(o);
-        if (pointSegDist(o.x, o.y, x1, y1, x2, y2) < o.r + 3) return false;
+        if (segmentHitsObstacle(o, x1, y1, x2, y2, 3)) return false;
       }
       if (t >= 1) return true;
     }
@@ -373,6 +392,13 @@ class Game {
         b.hitIds.add(e.id);
         this.damageEnemy(e, b.damage, b.element, b);
         this.spawnParticles(b.x, b.y, b.color, 3);
+        if (p.mods.kinetic && e.alive) {
+          // Kinetic Rounds: shove the target along the shot.
+          const sp = Math.hypot(b.vx, b.vy) || 1;
+          const k = 16 * p.mods.kinetic * (e.isBoss ? 0.2 : 1);
+          e.x += (b.vx / sp) * k;
+          e.y += (b.vy / sp) * k;
+        }
         if (b.blast && !b.detonated) {
           b.detonated = true;
           this.explode(b.x, b.y, b.blast, b.damage * 0.8, b.element, b);
@@ -491,6 +517,12 @@ class Game {
   // reactions, lifesteal and kill effects apply consistently.
   damageEnemy(e, amount, element, src, isDot) {
     if (!e.alive) return;
+    // Loaded Dice: direct hits can crit for 3x.
+    const dice = this.player.mods.dice;
+    if (dice && !isDot && Math.random() < 0.1 * dice) {
+      amount *= 3;
+      e.dmgCrit = true;
+    }
     const dealt = amount * enemyDamageMult(this, e);
     e.hp -= dealt;
     if (!isDot) {
@@ -611,12 +643,15 @@ class Game {
     e.dmgAcc = 0;
     e.dmgAccT = 0;
     if (v <= 0 || !SAVE.settings.damageNumbers) return;
-    const big = v >= 60;
+    const crit = !!e.dmgCrit;
+    const big = v >= 60 || crit;
     this.dmgNumbers.push({
       x: e.x + rand(-10, 10), y: e.y + rand(-10, 10), h: 2.2 * (e.isBoss ? 2.2 : 1),
-      text: String(v), color: e.dmgEl ? elementOf(e.dmgEl).light : UI.cream, big, t: 0, dur: 0.75,
+      text: crit ? v + "!" : String(v), color: crit ? UI.gold : e.dmgEl ? elementOf(e.dmgEl).light : UI.cream,
+      big, t: 0, dur: crit ? 0.95 : 0.75,
     });
     e.dmgEl = null;
+    e.dmgCrit = false;
     if (this.dmgNumbers.length > 40) this.dmgNumbers.shift();
   }
 
@@ -689,6 +724,94 @@ class Game {
     }
   }
 
+  // ---- Zany mods (see upgrades.js) -------------------------------------------
+
+  updateMods(dt) {
+    const p = this.player;
+    const dmgMul = p.damage / PLAYER.baseDamage;
+
+    // Ring of Fire: a burst of fire bolts every few seconds.
+    if (p.mods.ringOfFire) {
+      this.modTimers.ring -= dt;
+      if (this.modTimers.ring <= 0) {
+        this.modTimers.ring = Math.max(2, 5 - p.mods.ringOfFire * 0.75);
+        this.nova(p.x, p.y, 12 + 4 * p.mods.ringOfFire, 12 * dmgMul, "fire", 460);
+        SOUND.play("explode");
+      }
+    }
+
+    // Moon Shield: moons orbit, block shots and bonk enemies.
+    const want = p.mods.moon || 0;
+    while (this.moons.length < want) this.moons.push({ a: 0, cooldowns: new Map() });
+    this.moons.forEach((m, i) => {
+      m.a += dt * 2.4;
+      const a = m.a + (i / this.moons.length) * Math.PI * 2;
+      m.x = p.x + Math.cos(a) * 62;
+      m.y = p.y + Math.sin(a) * 62;
+      for (const b of this.bullets) {
+        if (b.owner === "enemy" && !b.dead && dist(b.x, b.y, m.x, m.y) < 14 + b.radius) {
+          b.dead = true;
+          this.spawnParticles(b.x, b.y, "#d8e0ff", 2);
+        }
+      }
+      for (const e of this.enemies) {
+        if (!e.alive || dist(e.x, e.y, m.x, m.y) > 14 + e.radius) continue;
+        const now = this.director.time;
+        if (now - (m.cooldowns.get(e.id) || -9) < 0.5) continue;
+        if (m.cooldowns.size > 200) m.cooldowns.clear();
+        m.cooldowns.set(e.id, now);
+        this.damageEnemy(e, 18 * dmgMul, null);
+      }
+    });
+  }
+
+  // Radial burst of player bullets.
+  nova(x, y, count, damage, element, speed = 420) {
+    const off = rand(0, Math.PI * 2);
+    for (let i = 0; i < count; i++) {
+      const a = off + (i / count) * Math.PI * 2;
+      this.bullets.push(new Bullet({
+        x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, radius: 4, damage,
+        owner: "player", color: elementOf(element).color, element, shape: "orb", life: 1.1,
+        wallBounce: (this.player.mods.rubber || 0) * 2,
+      }));
+    }
+  }
+
+  clearEnemyBullets(x, y, radius) {
+    for (const b of this.bullets) {
+      if (b.owner === "enemy" && !b.dead && dist(b.x, b.y, x, y) < radius) {
+        b.dead = true;
+        this.spawnParticles(b.x, b.y, "#e8f0ff", 1);
+      }
+    }
+  }
+
+  onRoll() {
+    const p = this.player;
+    if (p.mods.blankRoll) {
+      const r = 110 + 50 * p.mods.blankRoll;
+      this.clearEnemyBullets(p.x, p.y, r);
+      this.blasts.push({ x: p.x, y: p.y, r, t: 0, dur: 0.3, color: "#e8f0ff" });
+      SOUND.play("zap");
+    }
+    if (p.mods.bulletTime) this.bulletTimeT = 2;
+  }
+
+  // Moon Boots: landing slams the ground around you.
+  stomp() {
+    const p = this.player;
+    const r = 80 + 30 * p.mods.moonBoots;
+    this.explode(p.x, p.y, r, 20 * p.mods.moonBoots * (p.damage / PLAYER.baseDamage), null);
+    for (const e of this.enemies) {
+      const d = dist(e.x, e.y, p.x, p.y);
+      if (!e.alive || e.isBoss || d > r + e.radius || d < 1) continue;
+      e.x += ((e.x - p.x) / d) * 40;
+      e.y += ((e.y - p.y) / d) * 40;
+    }
+    this.shake(0.35);
+  }
+
   addXp(value) {
     const p = this.player;
     p.xp += value * p.xpMul;
@@ -737,6 +860,11 @@ class Game {
   }
 
   onPlayerHit() {
+    const p = this.player;
+    if (p.mods.spite) {
+      // Spite: getting hit lashes out.
+      this.nova(p.x, p.y, 8 + 8 * p.mods.spite, 16 * (p.damage / PLAYER.baseDamage), "dark", 480);
+    }
     this.damageFlash = 0.35;
     this.spawnParticles(this.player.x, this.player.y, "#ff4d4d", 8);
     SOUND.play("hurt");
@@ -763,6 +891,15 @@ class Game {
       for (let i = 0; i < 2; i++) this.director.spawn(e.def.splits, e.x + rand(-25, 25), e.y + rand(-25, 25));
     }
     if (e.def.deathRing) firePattern("deathRing", e, p, this.bullets);
+
+    // Zany mods that trigger on kills.
+    if (p.mods.corpse && this.corpseBudget > 0 && Math.random() < 0.2 * p.mods.corpse) {
+      this.corpseBudget--;
+      this.explode(e.x, e.y, 60 + e.radius, 10 * dmgMul + e.maxHp * 0.08, "fire");
+    }
+    if (p.mods.static && ++this.staticKills % 3 === 0) {
+      this.chain(e, 1 + 2 * p.mods.static, 280, 18 * dmgMul, "energy");
+    }
 
     // Elemental death effects — the set bonuses that make kills chain.
     if (e.status.slime > 0) this.spawnPuddle(e.x, e.y, 55, 10 * dmgMul * p.potency("slime"), 3);

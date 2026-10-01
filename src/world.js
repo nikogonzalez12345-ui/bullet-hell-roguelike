@@ -34,6 +34,86 @@ function obstaclesNear(x, y) {
   return OB_GRID.get(Math.floor(x / OB_CELL) + "," + Math.floor(y / OB_CELL)) || NO_OBSTACLES;
 }
 
+// Obstacles are circles { x, y, r } or oriented boxes (walls, buildings):
+// { x, y, hw, hh, c, s, r } — half extents, cos/sin of the rotation, and a
+// bounding radius r for cheap rejection and grid registration.
+function addBoxObstacle(x, y, hw, hh, angle) {
+  const o = { x, y, hw, hh, c: Math.cos(angle), s: Math.sin(angle), r: Math.hypot(hw, hh) };
+  addObstacle(o);
+  return o;
+}
+
+function obstacleHit(o, x, y, rad) {
+  const dx = x - o.x, dy = y - o.y;
+  const reach = o.r + rad;
+  if (dx * dx + dy * dy > reach * reach) return false;
+  if (!o.hw) return true;
+  const lx = dx * o.c + dy * o.s, ly = -dx * o.s + dy * o.c;
+  const qx = lx - clamp(lx, -o.hw, o.hw), qy = ly - clamp(ly, -o.hh, o.hh);
+  return qx * qx + qy * qy < rad * rad;
+}
+
+// Where a body of radius `rad` at (x, y) must move to stop overlapping `o`,
+// plus the surface normal there. Null when it doesn't overlap.
+function obstaclePush(o, x, y, rad) {
+  const dx = x - o.x, dy = y - o.y;
+  if (!o.hw) {
+    const dd = Math.hypot(dx, dy), min = o.r + rad;
+    if (dd >= min || dd < 0.001) return null;
+    return { x: o.x + (dx / dd) * min, y: o.y + (dy / dd) * min, nx: dx / dd, ny: dy / dd };
+  }
+  if (dx * dx + dy * dy > (o.r + rad) * (o.r + rad)) return null;
+  const lx = dx * o.c + dy * o.s, ly = -dx * o.s + dy * o.c;
+  const cx = clamp(lx, -o.hw, o.hw), cy = clamp(ly, -o.hh, o.hh);
+  const qx = lx - cx, qy = ly - cy;
+  const d = Math.hypot(qx, qy);
+  let nlx, nly, px, py;
+  if (d > 0.001) {
+    if (d >= rad) return null;
+    nlx = qx / d; nly = qy / d;
+    px = cx + nlx * rad; py = cy + nly * rad;
+  } else if (o.hw - Math.abs(lx) < o.hh - Math.abs(ly)) {
+    // Centre is inside the box: leave through the nearest face.
+    nlx = Math.sign(lx) || 1; nly = 0;
+    px = nlx * (o.hw + rad); py = ly;
+  } else {
+    nlx = 0; nly = Math.sign(ly) || 1;
+    px = lx; py = nly * (o.hh + rad);
+  }
+  return {
+    x: o.x + px * o.c - py * o.s, y: o.y + px * o.s + py * o.c,
+    nx: nlx * o.c - nly * o.s, ny: nlx * o.s + nly * o.c,
+  };
+}
+
+// Does the segment pass within `pad` of the obstacle?
+function segmentHitsObstacle(o, x1, y1, x2, y2, pad) {
+  if (pointSegDist(o.x, o.y, x1, y1, x2, y2) > o.r + pad) return false;
+  if (!o.hw) return true;
+  // Slab test against the box (inflated by pad) in its local frame.
+  const ax = (x1 - o.x) * o.c + (y1 - o.y) * o.s, ay = -(x1 - o.x) * o.s + (y1 - o.y) * o.c;
+  const bx = (x2 - o.x) * o.c + (y2 - o.y) * o.s, by = -(x2 - o.x) * o.s + (y2 - o.y) * o.c;
+  let t0 = 0, t1 = 1;
+  for (const [a, b, h] of [[ax, bx, o.hw + pad], [ay, by, o.hh + pad]]) {
+    const d = b - a;
+    if (Math.abs(d) < 1e-6) {
+      if (Math.abs(a) > h) return false;
+      continue;
+    }
+    let ta = (-h - a) / d, tb = (h - a) / d;
+    if (ta > tb) [ta, tb] = [tb, ta];
+    t0 = Math.max(t0, ta);
+    t1 = Math.min(t1, tb);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+function blockedAt(x, y, rad) {
+  for (const o of obstaclesNear(x, y)) if (obstacleHit(o, x, y, rad)) return true;
+  return false;
+}
+
 function clearObstacles() {
   OBSTACLES.length = 0;
   OB_GRID.clear();
@@ -174,6 +254,17 @@ class World {
       obsidian: prop(TEX.obsidian, 1.5),
       deadBark: prop(TEX.deadBark, 2),
       stone: prop(TEX.stone, 1),
+      // Structures compute their own world-space UVs, so no uvScale here.
+      stoneWall: prop(TEX.stoneWall, 1),
+      caveWall: prop(TEX.caveWall, 1),
+      obsidianWall: prop(TEX.obsidianWall, 1),
+      planks: prop(TEX.planks, 1),
+      roofTiles: ps1Material({ map: TEX.roofTiles, doubleSide: true, occlusionFade: true }),
+      thatch: ps1Material({ map: TEX.thatch, doubleSide: true, occlusionFade: true }),
+      plankRoof: ps1Material({ map: TEX.planks, doubleSide: true, occlusionFade: true }),
+      obsidianRoof: ps1Material({ map: TEX.obsidianWall, doubleSide: true, occlusionFade: true }),
+      torii: ps1Material({ map: TEX.wood, color: "#ff5a3a", occlusionFade: true }),
+      windowDark: ps1Material({ color: "#1a1014", occlusionFade: true }),
       grass: ps1Material({ map: TEX.grassTuft, doubleSide: true }),
       moss: ps1Material({ map: TEX.grassTuft, doubleSide: true, color: "#5aa8a0" }),
       cinder: ps1Material({ map: TEX.grassTuft, doubleSide: true, color: "#b04a2a" }),
@@ -187,11 +278,13 @@ class World {
     };
     this.geoVariants = new Map();
 
+    this.planLayout();
     this.buildHeights();
     CURRENT_WORLD = this;
     this.buildSky();
     this.buildTerrain();
     this.buildSea();
+    this.buildStructures();
     this.scatter();
     this.buildParticles();
   }
@@ -207,12 +300,15 @@ class World {
     if (style === "cave") {
       // Gently rolling floor ringed by steep rock walls instead of a coast.
       h = fbm(x * 0.03, z * 0.03, 4) * 1.8 + 0.6;
+      h += Math.max(0, fbm(x * 0.024 + 40, z * 0.024 - 70, 3)) * 3;
       const wallR = PLAY_R + 4 + fbm(x * 0.03 + 70, z * 0.03 - 40, 3) * 8;
       h += smooth(wallR, wallR + 14, r) * 24;
     } else {
       const coastR = PLAY_R + 12 + fbm(x * 0.02 + 50, z * 0.02 + 50, 3) * 14;
       const land = 1 - smooth(coastR - 8, coastR + 6, r);
       h = fbm(x * 0.03, z * 0.03, 4) * 2.8 + 0.7;
+      // Rolling hills across the whole island, not just the ridges.
+      h += Math.max(0, fbm(x * 0.024 + 40, z * 0.024 - 70, 3)) * 6;
       const ridge = Math.max(0, fbm(x * 0.013 + 200, z * 0.013 - 90, 3));
       if (style === "hell") {
         // Jagged, cracked badlands.
@@ -224,8 +320,23 @@ class World {
       h = h * land - 4.5 * (1 - land);
       if (r < PLAY_R) h = Math.max(h, WATER_Y + 0.35);
     }
+    h = this.shapeHeight(x, z, h);
     // Gentle clearing where the run starts.
     return lerp(0.4, h, smooth(4, 14, r));
+  }
+
+  // Layout features carved into the terrain: steep rocky knolls, and flat
+  // pads under buildings.
+  shapeHeight(x, z, h) {
+    for (const k of this.knolls) {
+      const d = Math.hypot(x - k.x, z - k.z);
+      if (d < k.outer) h += k.h * (1 - smooth(k.core, k.outer, d));
+    }
+    for (const p of this.pads) {
+      const d = Math.hypot(x - p.x, z - p.z);
+      if (d < p.r + 4) h = lerp(p.h, h, smooth(p.r, p.r + 4, d));
+    }
+    return h;
   }
 
   buildHeights() {
@@ -273,6 +384,14 @@ class World {
       } else {
         const low = h < WATER_Y + 0.8 ? 1 : 0;      // scorched red near the lava
         r *= 1 + low * 0.6; g *= 1 - low * 0.3; b *= 1 - low * 0.4;
+      }
+      // Steep slopes (knolls, ridges) darken and grey out like rock faces.
+      const hx = this.heights[j * n + Math.min(n - 1, i + 1)] - this.heights[j * n + Math.max(0, i - 1)];
+      const hz = this.heights[Math.min(n - 1, j + 1) * n + i] - this.heights[Math.max(0, j - 1) * n + i];
+      const steep = smooth(1.2, 3.2, Math.hypot(hx, hz) / (2 * TERRAIN_SIZE / TERRAIN_SEGS));
+      if (steep > 0) {
+        const grey = (r + g + b) / 3 * 0.7;
+        r = lerp(r, grey, steep * 0.7); g = lerp(g, grey, steep * 0.7); b = lerp(b, grey * 1.05, steep * 0.7);
       }
       colors[k * 3] = r; colors[k * 3 + 1] = g; colors[k * 3 + 2] = b;
     }
@@ -545,6 +664,296 @@ class World {
     this.animated.push({ obj: flame, phase: this.rng() * 10 }, { obj: core, phase: this.rng() * 10 });
   }
 
+  // ---- Layout: knolls, zig-zag walls and buildings ---------------------------
+
+  inFootprint(x, z, pad = 0) {
+    for (const f of this.footprints) {
+      const dx = x - f.x, dz = z - f.z, rr = f.r + pad;
+      if (dx * dx + dz * dz < rr * rr) return true;
+    }
+    return false;
+  }
+
+  // Decide where everything goes (before the heightmap is built, since knolls
+  // and building pads reshape the terrain).
+  planLayout() {
+    const r = this.rng;
+    const style = this.biome.terrain;
+    const cfg = {
+      island: { knolls: 11, knollH: [4, 8], walls: 8, buildings: 8 },
+      cave:   { knolls: 8,  knollH: [3, 6], walls: 9, buildings: 7 },
+      hell:   { knolls: 10, knollH: [5, 10], walls: 9, buildings: 8 },
+    }[style];
+    this.knolls = [];
+    this.pads = [];
+    this.footprints = [];
+    this.wallPlans = [];
+    this.buildingPlans = [];
+
+    const free = (x, z, rad) => {
+      const d = Math.hypot(x, z);
+      return d > 16 + rad && d < PLAY_R - rad - 6 && !this.inFootprint(x, z, rad + 3);
+    };
+    const spot = (rad) => {
+      for (let t = 0; t < 40; t++) {
+        const a = r() * Math.PI * 2, d = Math.sqrt(r()) * PLAY_R;
+        const x = Math.cos(a) * d, z = Math.sin(a) * d;
+        if (free(x, z, rad)) return { x, z };
+      }
+      return null;
+    };
+
+    // Knolls: steep, flat-topped rocky hills you can duck behind.
+    for (let i = 0; i < cfg.knolls; i++) {
+      const core = 3 + r() * 3.5;
+      const s = spot(core * 1.8);
+      if (!s) continue;
+      const h = cfg.knollH[0] + r() * (cfg.knollH[1] - cfg.knollH[0]);
+      this.knolls.push({ x: s.x, z: s.z, core, outer: core * 1.8, h });
+      this.footprints.push({ x: s.x, z: s.z, r: core * 1.8 });
+    }
+
+    // Buildings (and ruins) sit on flattened pads.
+    for (let i = 0; i < cfg.buildings; i++) {
+      const roll = r();
+      let kind;
+      if (style === "island") kind = roll < 0.55 ? "house" : roll < 0.85 ? "ruin" : "torii";
+      else if (style === "cave") kind = roll < 0.55 ? "shack" : "ruin";
+      else kind = roll < 0.65 ? "ruin" : "shrine";
+      const w = kind === "torii" ? 4.6 : kind === "ruin" ? 7 + r() * 4 : 5 + r() * 3;
+      const dep = kind === "torii" ? 1.5 : kind === "ruin" ? 6 + r() * 3 : 4 + r() * 2;
+      const rad = Math.hypot(w, dep) / 2;
+      const s = spot(rad + 1.5);
+      if (!s) continue;
+      this.buildingPlans.push({ kind, x: s.x, z: s.z, w, d: dep, ang: r() * Math.PI * 2, seed: r() });
+      this.footprints.push({ x: s.x, z: s.z, r: rad + 1.5 });
+      // Pad height = the terrain there before flattening.
+      this.pads.push({ x: s.x, z: s.z, r: rad + 1.2, h: this.rawHeight(s.x, s.z) });
+    }
+
+    // Zig-zag walls: chains of segments with sharp 70-115 degree turns,
+    // making corners and corridors that break line of sight.
+    for (let i = 0; i < cfg.walls; i++) {
+      const start = spot(3);
+      if (!start) continue;
+      let dir = r() * Math.PI * 2;
+      let turn = r() < 0.5 ? 1 : -1;
+      const pts = [start];
+      const segs = 3 + Math.floor(r() * 3);
+      for (let k = 0; k < segs; k++) {
+        const prev = pts[pts.length - 1];
+        const len = 5 + r() * 5;
+        const nx = prev.x + Math.cos(dir) * len, nz = prev.z + Math.sin(dir) * len;
+        const mx = (prev.x + nx) / 2, mz = (prev.z + nz) / 2;
+        if (!free(nx, nz, 1) || !free(mx, mz, 1)) break;
+        pts.push({ x: nx, z: nz });
+        dir += turn * (1.2 + r() * 0.8);
+        if (r() < 0.75) turn = -turn; // mostly zig-zag, sometimes a hairpin
+      }
+      if (pts.length < 3) continue;
+      // Some segments are left out as gaps you can slip through.
+      const gaps = pts.slice(1).map(() => r() < 0.18);
+      this.wallPlans.push({ pts, gaps });
+      for (let k = 1; k < pts.length; k++) {
+        const a = pts[k - 1], b = pts[k];
+        const steps = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 2.5);
+        for (let t = 0; t <= steps; t++) {
+          this.footprints.push({ x: lerp(a.x, b.x, t / steps), z: lerp(a.z, b.z, t / steps), r: 1.6 });
+        }
+      }
+    }
+  }
+
+  buildStructures() {
+    const style = this.biome.terrain;
+    const wallMat = { island: this.mats.stoneWall, cave: this.mats.caveWall, hell: this.mats.obsidianWall }[style];
+
+    for (const k of this.knolls) this.dressKnoll(k);
+
+    for (const w of this.wallPlans) {
+      const H = style === "cave" ? 3.2 : style === "hell" ? 2.8 : 2.3;
+      for (let i = 1; i < w.pts.length; i++) {
+        if (w.gaps[i - 1]) continue;
+        const a = w.pts[i - 1], b = w.pts[i];
+        this.addWall(a.x, a.z, b.x, b.z, H, 0.9, wallMat, 0.3);
+      }
+      // Chunky posts at every joint hide the seams at sharp corners.
+      for (let i = 0; i < w.pts.length; i++) {
+        const p = w.pts[i];
+        const prevGap = i === 0 || w.gaps[i - 1], nextGap = i === w.pts.length - 1 || w.gaps[i];
+        if (prevGap && nextGap) continue;
+        this.addPost(p.x, p.z, 1.3, H + 0.5, wallMat);
+      }
+    }
+
+    for (const b of this.buildingPlans) {
+      if (b.kind === "house") this.addHouse(b, this.mats.planks, b.seed < 0.5 ? this.mats.roofTiles : this.mats.thatch, this.biome.lanterns);
+      else if (b.kind === "shack") this.addHouse(b, this.mats.planks, this.mats.plankRoof, true);
+      else if (b.kind === "shrine") this.addHouse(b, this.mats.obsidianWall, this.mats.obsidianRoof, true, this.mats.flame);
+      else if (b.kind === "torii") this.addTorii(b);
+      else this.addRuin(b, wallMat);
+    }
+  }
+
+  // Rocks (or spikes / stalagmites) around the rim make the knoll read as a
+  // cliff; its core is solid cover.
+  dressKnoll(k) {
+    const r = this.rng;
+    const style = this.biome.terrain;
+    const n = 5 + Math.floor(k.core * 1.2);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + r() * 0.4;
+      const d = k.core * (1.05 + r() * 0.25);
+      const x = k.x + Math.cos(a) * d, z = k.z + Math.sin(a) * d;
+      if (style === "hell" && r() < 0.5) this.addObsidian(x, z, 0.9 + r() * 0.6);
+      else if (style === "cave" && r() < 0.4) this.addStalagmite(x, z, 0.7 + r() * 0.5);
+      else this.addRock(x, z, 1.1 + r() * 0.8, style === "cave" ? this.mats.caveRock : style === "hell" ? this.mats.obsidian : this.mats.rock);
+    }
+    // Boulders tumbled around the foot of the slope.
+    const foot = 2 + Math.floor(r() * 3);
+    for (let i = 0; i < foot; i++) {
+      const a = r() * Math.PI * 2, d = k.outer * (0.8 + r() * 0.2);
+      this.addRock(k.x + Math.cos(a) * d, k.z + Math.sin(a) * d, 0.6 + r() * 0.6,
+        style === "cave" ? this.mats.caveRock : style === "hell" ? this.mats.obsidian : this.mats.rock);
+    }
+    // A little something on top.
+    if (style === "island" && r() < 0.7) this.addTree(k.x, k.z, 1 + r() * 0.4, r() < 0.5 ? "pine" : "round");
+    else if (style === "cave") this.addCrystals(k.x, k.z, 1.2);
+    else if (style === "hell" && r() < 0.6) this.addBrazier(k.x, k.z);
+    this.collide(k.x, k.z, k.core * 1.4);
+  }
+
+  // A box with world-space-scaled UVs (textures tile instead of stretching).
+  blockGeometry(w, h, d, segW = 1) {
+    const geo = new THREE.BoxGeometry(w, h, d, segW, 1, 1);
+    const pos = geo.attributes.position, nor = geo.attributes.normal, uv = geo.attributes.uv;
+    const T = 2.5; // world units per texture repeat
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i) + h / 2, z = pos.getZ(i);
+      if (Math.abs(nor.getY(i)) > 0.5) uv.setXY(i, x / T, z / T);
+      else if (Math.abs(nor.getZ(i)) > 0.5) uv.setXY(i, x / T, y / T);
+      else uv.setXY(i, z / T, y / T);
+    }
+    return geo;
+  }
+
+  // A wall segment that follows the ground. `broken` (0-1) knocks chunks
+  // out of the top so it reads as a ruin.
+  addWall(x1, z1, x2, z2, height, thick, mat, broken = 0) {
+    const len = Math.hypot(x2 - x1, z2 - z1);
+    const ang = Math.atan2(z2 - z1, x2 - x1);
+    const cx = (x1 + x2) / 2, cz = (z1 + z2) / 2;
+    const geo = this.blockGeometry(len, height, thick, Math.max(1, Math.ceil(len / 1.2)));
+    geo.rotateY(-ang);
+    geo.translate(cx, 0, cz);
+    const pos = geo.attributes.position;
+    const { fbm } = this.noise;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i);
+      let y = pos.getY(i) + height / 2;
+      if (broken && y > height * 0.5) y -= Math.max(0, fbm(x * 0.7, z * 0.7, 2) + 0.15) * height * broken * 1.4;
+      pos.setY(i, y - 0.6 + this.sampleHeight(x, z));
+    }
+    geo.computeBoundingSphere();
+    this.group.add(new THREE.Mesh(geo, mat));
+    if (Math.hypot(cx, cz) < PLAY_R) {
+      addBoxObstacle(cx / WORLD_SCALE, cz / WORLD_SCALE, len / 2 / WORLD_SCALE, thick / 2 / WORLD_SCALE, ang);
+    }
+  }
+
+  addPost(x, z, size, height, mat) {
+    const post = new THREE.Mesh(this.variant("post" + size + "_" + height, 0, () => this.blockGeometry(size, height, size)), mat);
+    post.rotation.y = this.rng() * Math.PI;
+    this.place(post, x, z, height / 2 - 0.6);
+    this.collide(x, z, size * 0.6);
+  }
+
+  // A cottage / miner's shack / demon shrine: walls, a pitched roof, a door
+  // and windows that glow when `lit`.
+  addHouse(b, wallMat, roofMat, lit, glowMat = this.mats.lanternGlow) {
+    const g = new THREE.Group();
+    const H = 2.8, R = 1.6 + b.d * 0.12;
+    const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
+    add(this.blockGeometry(b.w + 0.4, 0.7, b.d + 0.4), this.mats.stone, 0, 0.05, 0);   // foundation
+    add(this.blockGeometry(b.w, H, b.d), wallMat, 0, H / 2 + 0.3, 0);                  // body
+    add(this.roofGeometry(b.w / 2 + 0.45, b.d / 2 + 0.55, R), roofMat, 0, H + 0.3, 0); // roof
+    // Door on one long side, windows either side of it.
+    const front = b.d / 2 + 0.03;
+    add(new THREE.BoxGeometry(1.1, 1.8, 0.08), this.mats.windowDark, 0, 1.2, front);
+    const winMat = lit ? glowMat : this.mats.windowDark;
+    for (const sx of [-1, 1]) {
+      if (b.w > 5.5) add(new THREE.BoxGeometry(0.8, 0.7, 0.08), winMat, sx * b.w * 0.3, 1.9, front);
+      add(new THREE.BoxGeometry(0.7, 0.7, 0.08), winMat, sx * b.w * 0.25, 1.9, -front);
+    }
+    g.rotation.y = -b.ang;
+    this.place(g, b.x, b.z, -0.3);
+    addBoxObstacle(b.x / WORLD_SCALE, b.z / WORLD_SCALE, (b.w / 2 + 0.2) / WORLD_SCALE, (b.d / 2 + 0.2) / WORLD_SCALE, b.ang);
+    if (lit && this.biome.lanterns) this.addLantern(b.x + Math.cos(b.ang) * (b.w / 2 + 1.5), b.z + Math.sin(b.ang) * (b.w / 2 + 1.5));
+  }
+
+  // Gabled roof: two sloped planes plus the end triangles (eaves at y = 0).
+  roofGeometry(W, D, R) {
+    const v = [], uv = [];
+    const quad = (a, b, c, d, uw, uh) => {
+      v.push(...a, ...b, ...c, ...a, ...c, ...d);
+      uv.push(0, 0, uw, 0, uw, uh, 0, 0, uw, uh, 0, uh);
+    };
+    const slope = Math.hypot(D, R) / 2;
+    quad([-W, 0, -D], [W, 0, -D], [W, R, 0], [-W, R, 0], W, slope);
+    quad([W, 0, D], [-W, 0, D], [-W, R, 0], [W, R, 0], W, slope);
+    for (const sx of [-1, 1]) {
+      v.push(sx * W, 0, -D, sx * W, R, 0, sx * W, 0, D);
+      uv.push(0, 0, D / 2.5, R / 2.5, D / 1.25, 0);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(v, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  // Roofless ruin: four broken walls with a doorway or two you can run
+  // through, and something glowing inside.
+  addRuin(b, mat) {
+    const r = this.rng;
+    const c = Math.cos(b.ang), s = Math.sin(b.ang);
+    const P = (lx, lz) => ({ x: b.x + lx * c - lz * s, z: b.z + lx * s + lz * c });
+    const hw = b.w / 2, hd = b.d / 2;
+    const corners = [P(-hw, -hd), P(hw, -hd), P(hw, hd), P(-hw, hd)];
+    const doorSide = Math.floor(r() * 4);
+    const H = this.biome.terrain === "cave" ? 3 : 2.6;
+    for (let i = 0; i < 4; i++) {
+      const a = corners[i], e = corners[(i + 1) % 4];
+      const door = i === doorSide || (i === (doorSide + 2) % 4 && r() < 0.5);
+      if (door) {
+        // Split the side, leaving a 2.4-unit doorway in the middle.
+        const len = Math.hypot(e.x - a.x, e.z - a.z);
+        const t = (len / 2 - 1.2) / len;
+        this.addWall(a.x, a.z, lerp(a.x, e.x, t), lerp(a.z, e.z, t), H, 0.8, mat, 0.45);
+        this.addWall(lerp(a.x, e.x, 1 - t), lerp(a.z, e.z, 1 - t), e.x, e.z, H, 0.8, mat, 0.45);
+      } else {
+        this.addWall(a.x, a.z, e.x, e.z, H, 0.8, mat, 0.45);
+      }
+    }
+    for (const k of corners) this.addPost(k.x, k.z, 1.1, H + 0.3, mat);
+    const style = this.biome.terrain;
+    if (style === "hell") this.addBrazier(b.x, b.z);
+    else if (style === "cave") this.addCrystals(b.x, b.z, 1);
+    else if (this.biome.lanterns) this.addLantern(b.x, b.z);
+  }
+
+  // Shrine gate: two red posts and two crossbeams. Run between the posts.
+  addTorii(b) {
+    const g = new THREE.Group();
+    const add = (geo, x, y, z) => { const m = new THREE.Mesh(geo, this.mats.torii); m.position.set(x, y, z); g.add(m); };
+    for (const sx of [-1.6, 1.6]) add(new THREE.CylinderGeometry(0.22, 0.26, 4, 6), sx, 2, 0);
+    add(new THREE.BoxGeometry(5.2, 0.32, 0.4), 0, 4.1, 0);
+    add(new THREE.BoxGeometry(4.0, 0.22, 0.3), 0, 3.3, 0);
+    g.rotation.y = -b.ang;
+    this.place(g, b.x, b.z, -0.1);
+    for (const sx of [-1.6, 1.6]) this.collide(b.x + Math.cos(b.ang) * sx, b.z + Math.sin(b.ang) * sx, 0.3);
+  }
+
   scatter() {
     const { fbm } = this.noise;
     const r = this.rng;
@@ -559,7 +968,8 @@ class World {
         if (d < 9 || d > limit) continue;
         const h = this.sampleHeight(wx, wz);
         if (h < WATER_Y + 0.4) continue;
-        if (flora === "cave" && h > 4) continue; // not up the walls
+        if (flora === "cave" && h > 4 && d > PLAY_R - 4) continue; // not up the walls
+        if (this.inFootprint(wx, wz)) continue;
 
         const dense = fbm(wx * 0.045 + 300, wz * 0.045 + 300, 3);
         const rocky = fbm(wx * 0.06 - 200, wz * 0.06 + 100, 2);

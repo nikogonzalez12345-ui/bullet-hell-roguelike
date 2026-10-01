@@ -77,12 +77,12 @@ class GameUI {
     this.el.cards.innerHTML = "";
     for (const u of picks) {
       const card = document.createElement("button");
-      card.className = `card rarity-${u.rarity}` + (u.weapon ? " weapon-card" : "");
+      card.className = `card rarity-${u.rarity}` + (u.weapon ? " weapon-card" : "") + (u.zany ? " zany" : "");
       card.innerHTML = `
         <div class="icon" ${u.iconColor ? `style="color:${u.iconColor}"` : ""}>${u.icon}</div>
         <div class="name">${u.name}</div>
         <div class="desc">${u.desc}</div>
-        <div class="tag">${u.rarity.toUpperCase()}</div>`;
+        <div class="tag">${u.rarity.toUpperCase()}${u.zany ? " · WILD" : ""}${u.zany && this.game.player.mods[u.id] ? ` · x${this.game.player.mods[u.id] + 1}` : ""}</div>`;
       card.addEventListener("click", () => this.game.chooseUpgrade(u));
       this.el.cards.appendChild(card);
     }
