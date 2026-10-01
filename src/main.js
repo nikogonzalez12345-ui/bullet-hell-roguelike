@@ -75,8 +75,14 @@
   document.addEventListener("mousemove", (e) => {
     const locked = document.pointerLockElement === app;
     // Without lock (unsupported browser), still turn while over the 3D view.
-    if (locked || e.target === view) game.look(e.movementX || 0);
+    if (locked || e.target === view) game.look(e.movementX || 0, e.movementY || 0);
   });
+  // Scroll wheel zooms the camera.
+  window.addEventListener("wheel", (e) => {
+    if (game.state !== STATE.PLAYING) return;
+    e.preventDefault();
+    game.zoom(e.deltaY);
+  }, { passive: false });
 
   // ---- Keyboard ------------------------------------------------------------
   const KEY_MAP = {

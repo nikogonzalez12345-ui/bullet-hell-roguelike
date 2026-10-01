@@ -70,6 +70,8 @@ class Game {
     this.transition = null;
     this.bossGateWarned = false;
     this.yaw = -Math.PI / 2; // facing the sunset
+    this.camPitch = this.camPitch === undefined ? CAM.pitch : this.camPitch; // camera tilt/zoom carry over between runs
+    this.camDist = this.camDist === undefined ? CAM.dist : this.camDist;
   }
 
   // ---- Screens / states ------------------------------------------------------
@@ -224,8 +226,16 @@ class Game {
     }
   }
 
-  look(dx) {
-    if (this.state === STATE.PLAYING) this.yaw += dx * 0.0026 * SAVE.settings.sensitivity;
+  look(dx, dy = 0) {
+    if (this.state !== STATE.PLAYING) return;
+    const k = 0.0026 * SAVE.settings.sensitivity;
+    this.yaw += dx * k;
+    this.camPitch = clamp(this.camPitch + dy * k * 0.8 * (SAVE.settings.invertY ? -1 : 1), CAM.minPitch, CAM.maxPitch);
+  }
+
+  zoom(deltaY) {
+    if (this.state !== STATE.PLAYING) return;
+    this.camDist = clamp(this.camDist * Math.exp(deltaY * 0.0012), CAM.minDist, CAM.maxDist);
   }
 
   usePotion() {

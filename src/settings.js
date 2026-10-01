@@ -5,7 +5,7 @@
 const STORE_KEY = "voidrunner.save.v1";
 
 const DEFAULT_SAVE = {
-  settings: { sensitivity: 1, master: 0.8, music: 0.55, sfx: 0.8, shake: true, damageNumbers: true, autoFullscreen: true },
+  settings: { sensitivity: 1, master: 0.8, music: 0.55, sfx: 0.8, shake: true, damageNumbers: true, autoFullscreen: true, invertY: false },
   records: { bestTime: 0, bestKills: 0, bestScore: 0, bestStage: 0, runs: 0 },
   meta: { shards: 0, perks: {} },
 };

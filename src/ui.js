@@ -277,6 +277,7 @@ class GameUI {
       ["sfx", "SOUND EFFECTS", 0, 1, 0.05, (v) => Math.round(v * 100) + "%"],
     ];
     const toggles = [
+      ["invertY", "INVERT MOUSE Y"],
       ["shake", "SCREEN SHAKE"],
       ["damageNumbers", "DAMAGE NUMBERS"],
       ["autoFullscreen", "FULLSCREEN ON NEW GAME"],

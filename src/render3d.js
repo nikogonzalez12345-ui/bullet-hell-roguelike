@@ -12,8 +12,17 @@ const MAX_GEMS = 900;
 // Fixed chase rig (world units): pulled back and raised so the camera looks
 // down at ~22 degrees — enough to read the arena around you while keeping
 // the horizon in view. Pitch never changes.
-// Raised and pitched down ~37 degrees: more of the fight around you is on screen.
-const CAM = { back: 8.2, up: 9.2, shoulder: 0.35, lookAhead: 3.2, lookUp: 0.5, fov: 62 };
+// Free orbit camera. Mouse X turns, mouse Y tilts (pitch, radians down from
+// horizontal), the wheel zooms (distance). The rig eases toward those
+// targets so every motion glides. Low pitch = over-the-shoulder with the
+// view pushed ahead; high pitch = centred, near top-down tactical view.
+const CAM = {
+  pitch: 0.84, minPitch: 0.2, maxPitch: 1.35,
+  dist: 14.8, minDist: 7, maxDist: 26,  // pulled in up to 38% at low tilt (see follow)
+  shoulder: 0.6, lookAhead: [4.2, 1.2], lookUp: 0.5,
+  fov: 62, sprintFov: 69,
+  turnRate: 22, tiltRate: 12, zoomRate: 9, // damping (1/s): higher = snappier
+};
 
 const COLOR_CACHE = new Map();
 function cachedColor(hex) {
@@ -207,11 +216,30 @@ class Renderer3D {
     this.anchorY = this.anchor.y;
     const P = this.anchor.clone();
 
-    const fwd = new THREE.Vector3(Math.cos(game.yaw), 0, Math.sin(game.yaw));
-    const right = new THREE.Vector3(-Math.sin(game.yaw), 0, Math.cos(game.yaw));
-    const cam = P.clone().addScaledVector(fwd, -CAM.back).addScaledVector(right, CAM.shoulder);
-    cam.y += CAM.up;
-    cam.y = Math.max(cam.y, terrainHeight(cam.x, cam.z) + 0.6);
+    // Ease the rig toward where the mouse/wheel put it.
+    const rig = this.rig || (this.rig = { yaw: game.yaw, pitch: game.camPitch, dist: game.camDist, fov: CAM.fov });
+    if (Math.abs(rig.yaw - game.yaw) > Math.PI) rig.yaw = game.yaw; // after a reset
+    rig.yaw = lerp(rig.yaw, game.yaw, 1 - Math.exp(-CAM.turnRate * dt));
+    rig.pitch = lerp(rig.pitch, game.camPitch, 1 - Math.exp(-CAM.tiltRate * dt));
+    rig.dist = lerp(rig.dist, game.camDist, 1 - Math.exp(-CAM.zoomRate * dt));
+    // Sprinting/rolling widens the view a touch for a sense of speed.
+    const fast = p.sprinting || p.isRolling;
+    rig.fov = lerp(rig.fov, fast ? CAM.sprintFov : CAM.fov, 1 - Math.exp(-6 * dt));
+    if (Math.abs(this.camera.fov - rig.fov) > 0.01) {
+      this.camera.fov = rig.fov;
+      this.camera.updateProjectionMatrix();
+    }
+
+    const t = (rig.pitch - CAM.minPitch) / (CAM.maxPitch - CAM.minPitch); // 0 low .. 1 overhead
+    const fwd = new THREE.Vector3(Math.cos(rig.yaw), 0, Math.sin(rig.yaw));
+    const right = new THREE.Vector3(-Math.sin(rig.yaw), 0, Math.cos(rig.yaw));
+    const shoulder = CAM.shoulder * (1 - t);
+    const dist = rig.dist * lerp(0.62, 1, t); // lower tilt = tighter, more cinematic
+    const cam = P.clone()
+      .addScaledVector(fwd, -Math.cos(rig.pitch) * dist)
+      .addScaledVector(right, shoulder);
+    cam.y += Math.sin(rig.pitch) * dist;
+    cam.y = Math.max(cam.y, terrainHeight(cam.x, cam.z) + 0.8);
     // Screen shake: jitter the camera position (lookAt below turns it into
     // a small rotational wobble too).
     const sh = game.shakeAmt || 0;
@@ -222,7 +250,7 @@ class Renderer3D {
     }
     this.camera.position.copy(cam);
 
-    const target = P.clone().addScaledVector(fwd, CAM.lookAhead).addScaledVector(right, CAM.shoulder);
+    const target = P.clone().addScaledVector(fwd, lerp(CAM.lookAhead[0], CAM.lookAhead[1], t)).addScaledVector(right, shoulder);
     target.y += CAM.lookUp;
     this.camera.lookAt(target);
   }
