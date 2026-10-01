@@ -570,25 +570,25 @@ const ENEMY_DEFS = {
   // ---- Stage-specific enemies ----
   // Nightfall
   bat: {
-    hp: 14, radius: 11, speed: 150, color: "#a07ae0",
+    hp: 14, radius: 11, speed: 150, color: "#e04a6a",
     contactDamage: 8, score: 14, xp: 1, behavior: "swoop",
   },
   wisp: {
-    hp: 26, radius: 12, speed: 70, color: "#7ae8ff",
+    hp: 26, radius: 12, speed: 70, color: "#ff6ac8",
     contactDamage: 8, score: 22, xp: 2, behavior: "blink",
     preferredRange: 260, fireInterval: 2.0, pattern: "wispOrbs",
   },
   // The Depths
   slime: {
-    hp: 42, radius: 16, speed: 80, color: "#6ae83a",
+    hp: 42, radius: 16, speed: 80, color: "#e03a9a",
     contactDamage: 10, score: 20, xp: 2, behavior: "hop", splits: "slime_small",
   },
   slime_small: {
-    hp: 14, radius: 10, speed: 95, color: "#a8ff6a",
+    hp: 14, radius: 10, speed: 95, color: "#ff7ac8",
     contactDamage: 6, score: 6, xp: 1, behavior: "hop",
   },
   golem: {
-    hp: 130, radius: 20, speed: 38, color: "#8ac8e0",
+    hp: 130, radius: 20, speed: 38, color: "#ff8a4a",
     contactDamage: 16, score: 45, xp: 5, behavior: "keepDistance",
     preferredRange: 240, fireInterval: 2.2, pattern: "shardFan",
   },

@@ -379,6 +379,19 @@ function buildTextures() {
     }
   });
 
+  // Angel wing: rows of overlapping white feathers, gold at the top edge.
+  TEX.featherWing = makeTexture(16, (ctx, s) => {
+    ctx.fillStyle = "#fbf8f2"; ctx.fillRect(0, 0, s, s);
+    const row = s / 4;
+    for (let r = 0; r < 4; r++) {
+      const y = Math.floor(r * row);
+      ctx.fillStyle = "rgba(150,140,120,0.35)";
+      ctx.fillRect(0, y + row - TEX_DETAIL, s, TEX_DETAIL);
+      for (let x = (r % 2) * 2; x < s; x += 4) ctx.fillRect(x, y, 1, row - TEX_DETAIL);
+    }
+    ctx.fillStyle = "#f0c860"; ctx.fillRect(0, 0, s, TEX_DETAIL * 2);
+  });
+
   TEX.grassTuft = makeTexture(16, (ctx, s) => {
     ctx.clearRect(0, 0, s, s);
     for (let i = 0; i < 9; i++) {

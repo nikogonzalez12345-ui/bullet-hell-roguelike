@@ -31,7 +31,7 @@ function setViewport(windowW, windowH) {
 // Gameplay still simulates on a flat 2D plane in "sim units" (the old pixel
 // scale, so all speed/range tuning carries over). WORLD_SCALE converts sim
 // units to Three.js world units: sim (x, y) -> world (x, z).
-const ARENA_RADIUS = 1800;
+const ARENA_RADIUS = 2400;
 const WORLD_SCALE = 0.05;
 
 // The run moves through four biomes as the clock advances. A stage change
@@ -145,7 +145,7 @@ const LOOT = {
 
 const COLORS = {
   enemyGrunt: "#ff6b6b",
-  enemyShooter: "#ff9b3b",
+  enemyShooter: "#ff5a8a",
   enemySniper: "#c46bff",
   enemyOrbiter: "#ff6bd0",
   enemyBoss: "#ff2b4d",

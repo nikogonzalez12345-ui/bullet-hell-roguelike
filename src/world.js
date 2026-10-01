@@ -7,7 +7,7 @@
 const WATER_Y = -0.8;
 const PLAY_R = ARENA_RADIUS * WORLD_SCALE;      // playable radius, world units
 const TERRAIN_SIZE = Math.ceil((PLAY_R + 30) * 2);
-const TERRAIN_SEGS = 170;
+const TERRAIN_SEGS = 212; // ~1.4 world units per segment
 
 // ---------------------------------------------------------------------------
 // Obstacles + a coarse spatial grid so collision checks stay cheap on a big map
@@ -680,9 +680,9 @@ class World {
     const r = this.rng;
     const style = this.biome.terrain;
     const cfg = {
-      island: { knolls: 11, knollH: [4, 8], walls: 8, buildings: 8 },
-      cave:   { knolls: 8,  knollH: [3, 6], walls: 9, buildings: 7 },
-      hell:   { knolls: 10, knollH: [5, 10], walls: 9, buildings: 8 },
+      island: { knolls: 19, knollH: [4, 8], walls: 14, buildings: 14 },
+      cave:   { knolls: 14, knollH: [3, 6], walls: 16, buildings: 12 },
+      hell:   { knolls: 17, knollH: [5, 10], walls: 16, buildings: 14 },
     }[style];
     this.knolls = [];
     this.pads = [];
@@ -974,7 +974,8 @@ class World {
         const dense = fbm(wx * 0.045 + 300, wz * 0.045 + 300, 3);
         const rocky = fbm(wx * 0.06 - 200, wz * 0.06 + 100, 2);
         const roll = r();
-        const treeChance = dense > 0.18 ? 0.7 : dense > -0.05 ? 0.2 : 0.04;
+        // Forests stay as clumps; open ground stays open.
+        const treeChance = dense > 0.18 ? 0.48 : dense > -0.05 ? 0.12 : 0.025;
         const rockChance = rocky > 0.25 ? 0.45 : 0.04;
 
         if (flora === "island") {
@@ -1039,13 +1040,14 @@ class World {
     tuft.translate(0, 0.35, 0);
     this.geoVariants.set("tuftGeo", tuft);
     const cover = flora === "cave" ? this.mats.moss : flora === "hell" ? this.mats.cinder : this.mats.grass;
-    placeTufts(flora === "island" ? 2000 : 900, cover, tuft, () => true);
+    const area = (PLAY_R / 90) ** 2; // counts were tuned for a 90-unit island
+    placeTufts(Math.round((flora === "island" ? 2000 : 900) * area), cover, tuft, () => true);
     if (flora === "island") {
       const flower = new THREE.PlaneGeometry(0.6, 0.5);
       flower.translate(0, 0.25, 0);
       this.geoVariants.set("flowerGeo", flower);
       // Flowers gather in open meadows, away from forests.
-      placeTufts(700, this.mats.flower, flower, (x, z) => fbm(x * 0.045 + 300, z * 0.045 + 300, 3) < -0.05);
+      placeTufts(Math.round(700 * area), this.mats.flower, flower, (x, z) => fbm(x * 0.045 + 300, z * 0.045 + 300, 3) < -0.05);
     }
   }
 

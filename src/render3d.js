@@ -12,7 +12,8 @@ const MAX_GEMS = 900;
 // Fixed chase rig (world units): pulled back and raised so the camera looks
 // down at ~22 degrees — enough to read the arena around you while keeping
 // the horizon in view. Pitch never changes.
-const CAM = { back: 8.5, up: 6.2, shoulder: 0.45, lookAhead: 5, lookUp: 0.6, fov: 62 };
+// Raised and pitched down ~37 degrees: more of the fight around you is on screen.
+const CAM = { back: 8.2, up: 9.2, shoulder: 0.35, lookAhead: 3.2, lookUp: 0.5, fov: 62 };
 
 const COLOR_CACHE = new Map();
 function cachedColor(hex) {
