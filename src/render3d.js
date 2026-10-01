@@ -211,6 +211,14 @@ class Renderer3D {
     const cam = P.clone().addScaledVector(fwd, -CAM.back).addScaledVector(right, CAM.shoulder);
     cam.y += CAM.up;
     cam.y = Math.max(cam.y, terrainHeight(cam.x, cam.z) + 0.6);
+    // Screen shake: jitter the camera position (lookAt below turns it into
+    // a small rotational wobble too).
+    const sh = game.shakeAmt || 0;
+    if (sh > 0.01) {
+      cam.x += (Math.random() - 0.5) * sh;
+      cam.y += (Math.random() - 0.5) * sh * 0.6;
+      cam.z += (Math.random() - 0.5) * sh;
+    }
     this.camera.position.copy(cam);
 
     const target = P.clone().addScaledVector(fwd, CAM.lookAhead).addScaledVector(right, CAM.shoulder);

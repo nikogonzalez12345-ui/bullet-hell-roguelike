@@ -39,7 +39,7 @@ class Player {
       fireRate: PLAYER.baseFireRate,
       damage: PLAYER.baseDamage,
       bulletSpeed: PLAYER.baseBulletSpeed,
-      rollCooldown: PLAYER.rollCooldown,
+      staminaRegen: PLAYER.staminaRegen,
       regenPerSec: PLAYER.regenPerSec,
       pickupRadius: PLAYER.pickupRadius,
     };
@@ -80,6 +80,11 @@ class Player {
 
     this.rollTimer = 0;
     this.rollCooldownTimer = 0;
+    this.maxStamina = PLAYER.maxStamina;
+    this.stamina = this.maxStamina;
+    this.staminaDelayT = 0;
+    this.winded = false;
+    this.xpMul = 1;
     this.rollDirX = 0;
     this.rollDirY = 0;
     this.iframeTimer = 0;
@@ -98,14 +103,30 @@ class Player {
   get fireRate() { return this.base.fireRate * (1 + this.g("fireRatePct") / 100); }
   get damage() { return this.base.damage * (1 + this.g("damagePct") / 100); }
   get bulletSpeed() { return this.base.bulletSpeed * (1 + this.g("bulletSpeedPct") / 100); }
-  get rollCooldown() { return this.base.rollCooldown * (1 - Math.min(0.6, this.g("rollCdPct") / 100)); }
+  // `rollCdPct` gear rolls are stamina-regen bonuses now.
+  get staminaRegen() { return this.base.staminaRegen * (1 + this.g("rollCdPct") / 100); }
   get regenPerSec() { return this.base.regenPerSec + this.g("regen"); }
   get pickupRadius() { return this.base.pickupRadius * (1 + this.g("pickupPct") / 100); }
   get armor() { return this.g("armor"); }
 
   get isRolling() { return this.rollTimer > 0; }
   get isInvulnerable() { return this.iframeTimer > 0; }
-  get rollReady() { return this.rollCooldownTimer <= 0; }
+  get rollReady() { return this.rollCooldownTimer <= 0 && this.stamina >= PLAYER.rollCost; }
+
+  spendStamina(amount) {
+    this.stamina = Math.max(0, this.stamina - amount);
+    this.staminaDelayT = PLAYER.staminaDelay;
+    if (this.stamina === 0) this.winded = true;
+  }
+
+  updateStamina(dt) {
+    if (this.staminaDelayT > 0) {
+      this.staminaDelayT -= dt;
+    } else {
+      this.stamina = Math.min(this.maxStamina, this.stamina + this.staminaRegen * dt);
+    }
+    if (this.winded && this.stamina >= PLAYER.winded) this.winded = false;
+  }
   get backpackFull() { return this.backpack.length >= this.backpackSlots; }
 
   // Recompute stat totals and element affinity from everything equipped.
@@ -256,7 +277,8 @@ class Player {
     this.rollDirX = dirX / len;
     this.rollDirY = dirY / len;
     this.rollTimer = this.rollDuration;
-    this.rollCooldownTimer = this.rollCooldown;
+    this.rollCooldownTimer = PLAYER.rollMinGap;
+    this.spendStamina(PLAYER.rollCost);
     this.iframeTimer = Math.max(this.iframeTimer, PLAYER.rollIframes);
     this.justRolled = true;
   }
@@ -272,6 +294,7 @@ class Player {
     if (this.iframeTimer > 0) this.iframeTimer -= dt;
     if (this.hitPulse > 0) this.hitPulse -= dt;
     if (this.rollCooldownTimer > 0) this.rollCooldownTimer -= dt;
+    this.updateStamina(dt);
 
     if (this.regenPerSec > 0 && this.hp < this.maxHp) {
       this.regenAccum += this.regenPerSec * dt;
@@ -311,7 +334,8 @@ class Player {
       this.rollTimer -= dt;
     } else {
       // Short acceleration ramp: responsive, but no instant start/stop.
-      this.sprinting = !!input.sprint && wantsMove;
+      this.sprinting = !!input.sprint && wantsMove && !this.winded && this.stamina > 0;
+      if (this.sprinting) this.spendStamina(PLAYER.sprintDrain * dt);
       const top = this.speed * (this.sprinting ? PLAYER.sprintMul : 1);
       const k = 1 - Math.exp(-PLAYER.accel * dt);
       this.vx = lerp(this.vx, wantsMove ? mx * top : 0, k);
@@ -473,9 +497,54 @@ const ENEMY_DEFS = {
     preferredRange: 250, fireInterval: 0.75, pattern: "dragonPattern",
     name: "Ryujin Dragon",
   },
+  boss_demon: {
+    hp: 1700, radius: 34, speed: 72, color: "#ff3a2a",
+    contactDamage: 24, score: 1000, xp: 70, behavior: "boss",
+    preferredRange: 260, fireInterval: 0.8, pattern: "demonPattern",
+    name: "Akuma, Demon Lord",
+  },
+
+  // ---- Stage-specific enemies ----
+  // Nightfall
+  bat: {
+    hp: 14, radius: 11, speed: 150, color: "#a07ae0",
+    contactDamage: 8, score: 14, xp: 1, behavior: "swoop",
+  },
+  wisp: {
+    hp: 26, radius: 12, speed: 70, color: "#7ae8ff",
+    contactDamage: 8, score: 22, xp: 2, behavior: "blink",
+    preferredRange: 260, fireInterval: 2.0, pattern: "wispOrbs",
+  },
+  // The Depths
+  slime: {
+    hp: 42, radius: 16, speed: 80, color: "#6ae83a",
+    contactDamage: 10, score: 20, xp: 2, behavior: "hop", splits: "slime_small",
+  },
+  slime_small: {
+    hp: 14, radius: 10, speed: 95, color: "#a8ff6a",
+    contactDamage: 6, score: 6, xp: 1, behavior: "hop",
+  },
+  golem: {
+    hp: 130, radius: 20, speed: 38, color: "#8ac8e0",
+    contactDamage: 16, score: 45, xp: 5, behavior: "keepDistance",
+    preferredRange: 240, fireInterval: 2.2, pattern: "shardFan",
+  },
+  // Inferno
+  imp: {
+    hp: 24, radius: 12, speed: 115, color: "#ff5a3a",
+    contactDamage: 8, score: 22, xp: 2, behavior: "strafe",
+    preferredRange: 230, fireInterval: 1.5, pattern: "fireball",
+  },
+  elemental: {
+    hp: 64, radius: 16, speed: 55, color: "#ffa02a",
+    contactDamage: 12, score: 36, xp: 4, behavior: "keepDistance",
+    preferredRange: 260, fireInterval: 0.35, pattern: "flameSpin", deathRing: true,
+  },
 };
 
-const BOSS_CYCLE = ["boss_oni", "boss_kitsune", "boss_dragon"];
+// One boss per stage (Sunset, Night, Cave, Hell); in Inferno they all
+// return in rotation, tougher each loop.
+const STAGE_BOSSES = ["boss_oni", "boss_kitsune", "boss_dragon", "boss_demon"];
 
 let enemyIdCounter = 1;
 
@@ -603,10 +672,66 @@ class Enemy {
         }
         break;
       }
+      case "swoop": {
+        // Bats weave side to side as they dive at you.
+        this.swoopT = (this.swoopT || rand(0, 10)) + dt;
+        const weave = Math.sin(this.swoopT * 4) * (d > 120 ? 0.9 : 0.3);
+        this.x += Math.cos(toPlayer + weave) * spd * dt;
+        this.y += Math.sin(toPlayer + weave) * spd * dt;
+        break;
+      }
+      case "blink": {
+        // Wisps hold range and teleport around you every few seconds.
+        this.blinkT = (this.blinkT === undefined ? rand(2, 4) : this.blinkT) - dt;
+        if (this.blinkT <= 0 && this.frozenT <= 0) {
+          this.blinkT = rand(3, 4.5);
+          const a = rand(0, Math.PI * 2), r = rand(220, 300);
+          this.x = player.x + Math.cos(a) * r;
+          this.y = player.y + Math.sin(a) * r;
+          this.hitFlash = 0.15; // flash on arrival
+        }
+        const range = this.def.preferredRange;
+        if (Math.abs(d - range) > 30) {
+          const move = d > range ? toPlayer : toPlayer + Math.PI;
+          this.x += Math.cos(move) * spd * dt;
+          this.y += Math.sin(move) * spd * dt;
+        }
+        if (d < 700) this.fire(player, bullets, dt);
+        break;
+      }
+      case "hop": {
+        // Slimes only move while airborne: a string of hops toward you.
+        if (this.h === 0 && this.jumpCd <= 0) {
+          this.jumpCd = rand(0.5, 0.9);
+          this.jump(6.5, 1);
+          this.hopDir = toPlayer + rand(-0.3, 0.3);
+        }
+        if (this.h > 0) {
+          this.x += Math.cos(this.hopDir) * spd * 1.8 * dt;
+          this.y += Math.sin(this.hopDir) * spd * 1.8 * dt;
+        }
+        break;
+      }
+      case "strafe": {
+        // Imps circle at range, changing direction now and then.
+        if (!this.strafeDir || Math.random() < dt * 0.3) this.strafeDir = Math.random() < 0.5 ? 1 : -1;
+        const range = this.def.preferredRange;
+        const radial = d > range + 30 ? 1 : d < range - 30 ? -1 : 0; // close in / back off
+        const tangent = toPlayer + (Math.PI / 2) * this.strafeDir;
+        const mx = Math.cos(tangent) * 0.8 + Math.cos(toPlayer) * 0.6 * radial;
+        const my = Math.sin(tangent) * 0.8 + Math.sin(toPlayer) * 0.6 * radial;
+        const len = Math.hypot(mx, my) || 1;
+        this.x += (mx / len) * spd * dt;
+        this.y += (my / len) * spd * dt;
+        if (d < 700) this.fire(player, bullets, dt);
+        break;
+      }
       case "boss": {
-        // Oni Brute leaps at you and slams down (shockwave on landing).
-        if (this.type === "boss_oni" && this.jumpCd <= 0 && d < 600) {
-          this.jumpCd = 6;
+        // Oni Brute (and Akuma, when hurt) leap at you and slam down —
+        // a jumpable shockwave on landing.
+        const leaps = this.type === "boss_oni" || (this.type === "boss_demon" && this.hp < this.maxHp * 0.6);
+        if (leaps && this.jumpCd <= 0 && d < 600) {
+          this.jumpCd = this.type === "boss_demon" ? 5 : 6;
           this.jump(10, 2.6);
           this.slamming = true;
         }

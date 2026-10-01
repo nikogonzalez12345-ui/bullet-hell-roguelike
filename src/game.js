@@ -23,7 +23,8 @@ class Game {
     this.renderer.newWorld(this.seed, "sunset");
     this.resetRun();
     this.state = STATE.MENU;
-    this.ui.show("mainMenu");
+    SOUND.music.play("menu"); // starts on the first click/key (autoplay rules)
+    this.ui.showMainMenu();
   }
 
   resetRun() {
@@ -39,7 +40,12 @@ class Game {
     this.bolts = [];
     this.puddles = [];
     this.popups = [];
+    this.dmgNumbers = [];
     this.orbitals = [];
+    this.shakeAmt = 0;  // camera shake strength (world units), decays
+    this.hitStop = 0;   // seconds of frozen simulation for impact
+    this.gemCombo = 0;
+    this.gemComboT = 0;
     this.fxTimers = { nova: 6, trail: 0 };
     this.reactionBudget = 40;
     this.director = new Director(this);
@@ -67,10 +73,13 @@ class Game {
     this.seed = newSeed();
     this.renderer.newWorld(this.seed, STAGES[0].biome);
     this.resetRun();
+    applyPerks(this.player); // Armory upgrades
     this.state = STATE.PLAYING;
     this.ui.show(null);
     this.showBanner("SURVIVE", 2, UI.gold);
-    this.enterFullscreen();
+    SOUND.duck(false);
+    SOUND.music.play(STAGES[0].biome);
+    if (SAVE.settings.autoFullscreen) this.enterFullscreen();
     this.lockPointer();
   }
 
@@ -79,7 +88,24 @@ class Game {
     this.resetRun();
     this.state = STATE.MENU;
     this.unlockPointer();
-    this.ui.show("mainMenu");
+    SOUND.duck(false);
+    SOUND.music.play("menu");
+    this.ui.showMainMenu();
+  }
+
+  // ---- Juice -----------------------------------------------------------------
+
+  shake(amount) {
+    if (SAVE.settings.shake) this.shakeAmt = Math.max(this.shakeAmt, amount);
+  }
+
+  // Small freezes are rationed so frequent reactions punch instead of
+  // stutter; big moments (boss kills, slams) always land.
+  freeze(seconds) {
+    const now = performance.now();
+    if (seconds < 0.1 && now - (this.lastFreeze || 0) < 600) return;
+    this.lastFreeze = now;
+    this.hitStop = Math.max(this.hitStop, seconds);
   }
 
   // ---- Stages ----------------------------------------------------------------
@@ -100,6 +126,8 @@ class Game {
     this.bossGateWarned = false;
     this.state = STATE.TRANSITION;
     this.transition = { t: 0, dur: 3, swapAt: 0.9, to: this.stageIndex + 1, swapped: false };
+    SOUND.play("stage");
+    SOUND.music.stop();
   }
 
   updateTransition(dt) {
@@ -148,12 +176,14 @@ class Game {
       b.x = s.x;
       b.y = s.y;
     }
+    SOUND.music.play(biome);
   }
 
   pause() {
     if (this.state !== STATE.PLAYING) return;
     this.state = STATE.PAUSED;
     this.unlockPointer();
+    SOUND.duck(true);
     this.ui.showPause(this);
   }
 
@@ -161,6 +191,7 @@ class Game {
     if (this.state !== STATE.PAUSED) return;
     this.state = STATE.PLAYING;
     this.ui.show(null);
+    SOUND.duck(false);
     this.lockPointer();
   }
 
@@ -168,6 +199,7 @@ class Game {
     if (this.state !== STATE.PLAYING) return;
     this.state = STATE.INVENTORY;
     this.unlockPointer();
+    SOUND.duck(true);
     this.ui.renderInventory();
     this.ui.show("inventory");
   }
@@ -179,6 +211,7 @@ class Game {
     if (relock) {
       this.state = STATE.PLAYING;
       this.ui.show(null);
+      SOUND.duck(false);
       this.lockPointer();
     } else {
       this.state = STATE.PLAYING;
@@ -187,7 +220,7 @@ class Game {
   }
 
   look(dx) {
-    if (this.state === STATE.PLAYING) this.yaw += dx * 0.0026;
+    if (this.state === STATE.PLAYING) this.yaw += dx * 0.0026 * SAVE.settings.sensitivity;
   }
 
   usePotion() {
@@ -195,8 +228,10 @@ class Game {
     if (this.player.drinkPotion()) {
       this.hud.toast("DRANK HEALTH POTION", "#ff8a8a");
       this.spawnParticles(this.player.x, this.player.y, "#ff6a6a", 12);
+      SOUND.play("potion");
     } else if (this.player.potions === 0) {
       this.hud.toast("NO POTIONS", UI.muted);
+      SOUND.play("denied");
     }
   }
 
@@ -217,6 +252,7 @@ class Game {
 
   update(dt, input) {
     if (this.damageFlash > 0) this.damageFlash -= dt;
+    this.shakeAmt *= Math.exp(-9 * dt);
     if (this.state === STATE.TRANSITION) return this.updateTransition(dt);
     if (this.state !== STATE.PLAYING) return;
     if (this.bannerTimer > 0) this.bannerTimer -= dt;
@@ -227,9 +263,11 @@ class Game {
     if (p.justRolled) {
       p.justRolled = false;
       this.dust(p.x, p.y, 10, Math.atan2(-p.rollDirY, -p.rollDirX), 0.9);
+      SOUND.play("roll");
     }
     if (p.justJumped || p.justLanded) {
       this.dust(p.x, p.y, p.justLanded ? 12 : 6, 0, Math.PI);
+      SOUND.play(p.justLanded ? "land" : "jump");
       p.justJumped = p.justLanded = false;
     }
     this.updateAim(dt);
@@ -240,6 +278,17 @@ class Game {
     for (const e of this.enemies) {
       updateEnemyStatus(this, e, dt);
       e.update(dt, p, this.bullets);
+      // Hooks raised by enemy patterns.
+      if (e.slammed) {
+        e.slammed = false;
+        this.shake(0.9);
+        this.freeze(0.06);
+      }
+      if (e.wantsSummon) {
+        e.wantsSummon = false;
+        for (let i = 0; i < 2; i++) this.director.spawn("imp", e.x + rand(-60, 60), e.y + rand(-60, 60));
+        this.popup(e, "RISE, MY IMPS", "#ff7a4a");
+      }
     }
     for (const b of this.bullets) b.update(dt);
     for (const pt of this.particles) pt.update(dt);
@@ -368,7 +417,16 @@ class Game {
 
   collectPickups() {
     const p = this.player;
-    for (const gem of this.gems) if (gem.collected) this.addXp(gem.value);
+    // Gem pickups chime, rising in pitch as you vacuum up a streak.
+    this.gemComboT -= 1 / 60;
+    if (this.gemComboT <= 0) this.gemCombo = 0;
+    for (const gem of this.gems) {
+      if (!gem.collected) continue;
+      this.addXp(gem.value);
+      this.gemCombo++;
+      this.gemComboT = 0.6;
+      SOUND.play("gem", this.gemCombo);
+    }
     this.gems = this.gems.filter((g) => !g.collected);
 
     for (const l of this.loot) {
@@ -379,6 +437,7 @@ class Game {
         this.fullWarnCooldown = 2.5;
         const msg = l.item.kind === "potion" ? `POTION BELT FULL (${PLAYER.maxPotions}/${PLAYER.maxPotions})` : "BACKPACK FULL - PRESS TAB";
         this.hud.toast(msg, UI.hp.light);
+        SOUND.play("denied");
       }
     }
     this.loot = this.loot.filter((l) => !l.taken);
@@ -391,6 +450,7 @@ class Game {
     if (item.kind === "potion") {
       if (!p.addPotion()) return false;
       this.hud.toast(`+ HEALTH POTION (${p.potions}/${PLAYER.maxPotions})`, itemColor(item));
+      SOUND.play("loot", 0);
       return true;
     }
     if (isOutclassed(item, p)) {
@@ -400,6 +460,7 @@ class Game {
     const result = item.kind === "weapon" ? p.addWeaponItem(item) : p.addToBackpack(item);
     if (!result) return false;
     this.hud.toast(`+ ${item.name.toUpperCase()}${result === "equipped" ? " (EQUIPPED)" : ""}`, itemColor(item));
+    SOUND.play("loot", itemTier(item));
     this.autoSalvage();
     return true;
   }
@@ -421,6 +482,7 @@ class Game {
     const xp = 2 + itemTier(item) * 3 + Math.floor(item.level / 2);
     this.addXp(xp);
     this.hud.toast(`SALVAGED ${item.name.toUpperCase()} +${xp} XP`, UI.muted);
+    SOUND.play("salvage");
   }
 
   // ---- Damage + effects ---------------------------------------------------
@@ -431,7 +493,15 @@ class Game {
     if (!e.alive) return;
     const dealt = amount * enemyDamageMult(this, e);
     e.hp -= dealt;
-    if (!isDot) e.hitFlash = 0.08;
+    if (!isDot) {
+      e.hitFlash = 0.08;
+      SOUND.play("hit");
+    }
+    // Damage numbers: hits on one enemy within a short window are summed
+    // into a single number so rapid-fire doesn't spray digits everywhere.
+    e.dmgAcc = (e.dmgAcc || 0) + dealt;
+    if (!e.dmgAccT) e.dmgAccT = 0.12;
+    if (element) e.dmgEl = element;
 
     let steal = 0;
     if (element === "dark" && this.player.tier("dark") >= 1) steal += 0.04;
@@ -453,6 +523,9 @@ class Game {
   explode(x, y, radius, damage, element, src) {
     this.blasts.push({ x, y, r: radius, t: 0, dur: 0.35, color: elementOf(element).color });
     this.spawnParticles(x, y, elementOf(element).light, 8);
+    SOUND.play("explode");
+    const near = dist(x, y, this.player.x, this.player.y);
+    if (near < 450) this.shake(0.25 * (1 - near / 450));
     for (const e of this.enemies) {
       if (e.alive && dist(e.x, e.y, x, y) < radius + e.radius) this.damageEnemy(e, damage, element, src);
     }
@@ -460,6 +533,7 @@ class Game {
 
   bolt(x1, y1, x2, y2, color) {
     this.bolts.push({ x1, y1, x2, y2, color, t: 0, dur: 0.14, seed: Math.random() * 1000 });
+    SOUND.play("zap");
   }
 
   // Chain lightning: hop between nearby enemies not yet struck.
@@ -531,6 +605,21 @@ class Game {
     if (this.popups.length > 12) this.popups.shift();
   }
 
+  // Emit the summed-up damage for one enemy as a floating number.
+  flushDamage(e) {
+    const v = Math.round(e.dmgAcc || 0);
+    e.dmgAcc = 0;
+    e.dmgAccT = 0;
+    if (v <= 0 || !SAVE.settings.damageNumbers) return;
+    const big = v >= 60;
+    this.dmgNumbers.push({
+      x: e.x + rand(-10, 10), y: e.y + rand(-10, 10), h: 2.2 * (e.isBoss ? 2.2 : 1),
+      text: String(v), color: e.dmgEl ? elementOf(e.dmgEl).light : UI.cream, big, t: 0, dur: 0.75,
+    });
+    e.dmgEl = null;
+    if (this.dmgNumbers.length > 40) this.dmgNumbers.shift();
+  }
+
   spawnPuddle(x, y, r, dps, dur) {
     const big = this.player.tier("slime") >= 1 ? 1.4 : 1;
     this.puddles.push({ x, y, r: r * big, dps, t: 0, dur: dur * big, tick: 0 });
@@ -547,6 +636,10 @@ class Game {
     this.bolts = age(this.bolts);
     this.popups = age(this.popups);
     this.puddles = age(this.puddles);
+    this.dmgNumbers = age(this.dmgNumbers);
+    for (const e of this.enemies) {
+      if (e.dmgAccT > 0 && (e.dmgAccT -= dt) <= 0) this.flushDamage(e);
+    }
     for (const pd of this.puddles) {
       pd.tick -= dt;
       if (pd.tick > 0) continue;
@@ -598,7 +691,7 @@ class Game {
 
   addXp(value) {
     const p = this.player;
-    p.xp += value;
+    p.xp += value * p.xpMul;
     while (p.xp >= XP.toNext(p.level)) {
       p.xp -= XP.toNext(p.level);
       p.level += 1;
@@ -607,8 +700,10 @@ class Game {
   }
 
   openLevelUp() {
+    if (this.state !== STATE.LEVELUP) SOUND.play("levelup");
     this.state = STATE.LEVELUP;
     this.unlockPointer();
+    SOUND.duck(true);
     const level = this.player.level - this.pendingLevels + 1;
     const threat = this.director.threat;
     const itemLevel = Math.floor(this.director.time / 60);
@@ -624,6 +719,7 @@ class Game {
     } else {
       this.state = STATE.PLAYING;
       this.ui.show(null);
+      SOUND.duck(false);
       this.lockPointer();
     }
   }
@@ -633,21 +729,40 @@ class Game {
     if (boss && !this.seenBossIds.has(boss.id)) {
       this.seenBossIds.add(boss.id);
       this.showBanner(`${boss.name.toUpperCase()} APPEARS`, 3, "#ff6a8a");
+      SOUND.play("boss");
+      this.shake(0.4);
     }
     this.activeBoss = boss || null;
+    SOUND.music.intensity = boss ? 1 : 0;
   }
 
   onPlayerHit() {
     this.damageFlash = 0.35;
     this.spawnParticles(this.player.x, this.player.y, "#ff4d4d", 8);
+    SOUND.play("hurt");
+    this.shake(0.3);
+    this.freeze(0.05);
   }
 
   onEnemyKilled(e) {
     const p = this.player;
     this.score += e.score;
     p.kills += 1;
+    this.flushDamage(e);
     this.spawnParticles(e.x, e.y, e.color, e.isBoss ? 60 : 12);
+    SOUND.play("kill");
+    if (e.isBoss) {
+      SOUND.play("explode");
+      this.shake(1.2);
+      this.freeze(0.22);
+    }
     const dmgMul = p.damage / PLAYER.baseDamage;
+
+    // Creature death effects.
+    if (e.def.splits) {
+      for (let i = 0; i < 2; i++) this.director.spawn(e.def.splits, e.x + rand(-25, 25), e.y + rand(-25, 25));
+    }
+    if (e.def.deathRing) firePattern("deathRing", e, p, this.bullets);
 
     // Elemental death effects — the set bonuses that make kills chain.
     if (e.status.slime > 0) this.spawnPuddle(e.x, e.y, 55, 10 * dmgMul * p.potency("slime"), 3);
@@ -695,7 +810,10 @@ class Game {
   onGameOver() {
     this.state = STATE.GAMEOVER;
     this.unlockPointer();
-    this.ui.showGameOver(this);
+    SOUND.music.stop();
+    SOUND.play("hurt");
+    const result = recordRun(this); // saves records + awards shards
+    this.ui.showGameOver(this, result);
   }
 
   // Puff of ground dust in a cone around `angle` (spread = half-angle).

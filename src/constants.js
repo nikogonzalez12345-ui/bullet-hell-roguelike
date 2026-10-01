@@ -56,7 +56,14 @@ const PLAYER = {
   spreadDeg: 8,          // angle between multishot projectiles
   rollDistance: 115,     // sim units from the roll's burst (plus a little walk carry)
   rollDuration: 0.3,     // seconds — long enough to read as a real tuck-and-roll
-  rollCooldown: 1.1,     // seconds
+  // Stamina (the EN bar) powers sprinting and rolling.
+  maxStamina: 100,
+  staminaRegen: 30,      // per second, after a short pause
+  staminaDelay: 0.5,     // seconds after spending before it refills
+  sprintDrain: 24,       // per second while sprinting
+  rollCost: 32,
+  rollMinGap: 0.35,      // seconds between rolls even with stamina to spare
+  winded: 25,            // drained to 0 -> no sprinting until back above this
   rollIframes: 0.26,     // seconds of invulnerability after roll starts
   accel: 22,             // how quickly movement reaches full speed (1/sec)
   sprintMul: 1.45,       // hold Shift
@@ -94,7 +101,8 @@ const DIRECTOR = {
   hpPerSec: 1 / 135,       // …growing this much per second
   dmgBase: 1.06,           // enemy damage multiplier at 0:00…
   dmgPerSec: 1 / 335,
-  bossEvery: 180,          // seconds
+  bossEvery: 180,          // seconds between returning bosses in the last stage
+  stageBossAt: 150,        // each stage's boss arrives this long into the stage
   swarmEvery: 60,
   firstSwarm: 40,
   spawnMin: 480,           // spawn ring around the player (sim units)

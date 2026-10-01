@@ -155,6 +155,7 @@ function fireWeapon(game, p, slot, opts = {}) {
   const element = hasMut(item, "prismatic") ? choice(ELEMENT_IDS) : item.element === "none" ? null : item.element;
   const damage = b.dmg * weaponPower(item) * (p.damage / PLAYER.baseDamage);
   const fx = p.weaponFx[slot];
+  SOUND.play("shoot", b.cls);
   fx.kick = 1;
   fx.element = element;
 

@@ -131,10 +131,26 @@
   });
   app.addEventListener("contextmenu", (e) => e.preventDefault());
 
+  // Browsers only allow audio after a user gesture.
+  const unlockAudio = () => {
+    SOUND.unlock();
+    SOUND.music.start();
+  };
+  window.addEventListener("pointerdown", unlockAudio, true);
+  window.addEventListener("keydown", unlockAudio, true);
+
   let last = performance.now();
   function loop(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
+    // Hit-stop: freeze the simulation (and animation) for a few frames on
+    // big impacts. One-shot inputs stay latched until play resumes.
+    if (game.hitStop > 0) {
+      game.hitStop -= dt;
+      game.render(0);
+      requestAnimationFrame(loop);
+      return;
+    }
     const firing = input.mouseDown || input.fireQueued || game.autoFire;
     const frameInput = { ...input, mouseDown: firing };
     // One-shot presses are consumed by exactly one frame (holding Space

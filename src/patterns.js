@@ -82,7 +82,7 @@ const PATTERNS = {
     }
   },
 
-  // Oni landing shockwave: a tight, fast ring at chest height — jump it.
+  // Boss landing shockwave: a tight, fast ring at chest height — jump it.
   oniSlam(enemy, player, bullets) {
     const count = 28;
     const offset = rand(0, Math.PI * 2);
@@ -90,6 +90,78 @@ const PATTERNS = {
       const angle = offset + (i / count) * Math.PI * 2;
       spawnEnemyBullet(bullets, enemy.x, enemy.y, angle, { speed: 230, color: "#ffb03a", radius: 6 });
     }
+    SOUND.play("slam");
+    enemy.slammed = true; // Game reads this for screen shake
+  },
+
+  // Wisp: three slow orbs that drift after you.
+  wispOrbs(enemy, player, bullets) {
+    const base = angleTo(enemy.x, enemy.y, player.x, player.y);
+    for (let i = -1; i <= 1; i++) {
+      spawnEnemyBullet(bullets, enemy.x, enemy.y, base + i * 0.6, {
+        speed: 110, color: "#9af0ff", homing: 1.3, target: player, life: 5,
+      });
+    }
+  },
+
+  // Crystal golem: a fast fan of shards.
+  shardFan(enemy, player, bullets) {
+    const base = angleTo(enemy.x, enemy.y, player.x, player.y);
+    for (let i = 0; i < 5; i++) {
+      spawnEnemyBullet(bullets, enemy.x, enemy.y, base + (i / 4 - 0.5) * 0.55, { speed: 270, color: "#c8f4ff", radius: 4 });
+    }
+  },
+
+  // Imp: a pair of aimed fireballs.
+  fireball(enemy, player, bullets) {
+    const base = angleTo(enemy.x, enemy.y, player.x, player.y);
+    for (const off of [-0.08, 0.08]) {
+      spawnEnemyBullet(bullets, enemy.x, enemy.y, base + off, { speed: 210, color: "#ff7a2a", radius: 7 });
+    }
+  },
+
+  // Fire elemental: three rotating streams of flame.
+  flameSpin(enemy, player, bullets) {
+    enemy._spin = (enemy._spin || 0) + 0.32;
+    for (let i = 0; i < 3; i++) {
+      spawnEnemyBullet(bullets, enemy.x, enemy.y, enemy._spin + (i / 3) * Math.PI * 2, { speed: 165, color: "#ffb02a", life: 3 });
+    }
+  },
+
+  // Fire elemental death: a final burst.
+  deathRing(enemy, player, bullets) {
+    const count = 12;
+    for (let i = 0; i < count; i++) {
+      spawnEnemyBullet(bullets, enemy.x, enemy.y, (i / count) * Math.PI * 2, { speed: 150, color: "#ff5a1a" });
+    }
+  },
+
+  // Boss 4 — Akuma, Demon Lord: hellfire rings, aimed volleys and a
+  // crossing double spiral; summons imps; leaps when hurt (see Enemy).
+  demonPattern(enemy, player, bullets) {
+    const hpPct = enemy.hp / enemy.maxHp;
+    const phase = Math.floor(performance.now() / 2400) % 3;
+    if (phase === 0) {
+      const count = hpPct < 0.5 ? 26 : 20;
+      const offset = rand(0, Math.PI * 2);
+      for (let i = 0; i < count; i++) {
+        spawnEnemyBullet(bullets, enemy.x, enemy.y, offset + (i / count) * Math.PI * 2, { speed: 150, color: "#ff3a1a" });
+      }
+    } else if (phase === 1) {
+      const base = angleTo(enemy.x, enemy.y, player.x, player.y);
+      for (let i = 0; i < 5; i++) {
+        spawnEnemyBullet(bullets, enemy.x, enemy.y, base + (i / 4 - 0.5) * 0.6, { speed: 240, color: "#ffd23b", radius: 6 });
+      }
+    } else {
+      enemy._spiral = (enemy._spiral || 0) + 0.45;
+      for (const dir of [1, -1]) {
+        for (let i = 0; i < 3; i++) {
+          spawnEnemyBullet(bullets, enemy.x, enemy.y, dir * enemy._spiral + (i / 3) * Math.PI * 2, { speed: 180, color: "#ff7a2a" });
+        }
+      }
+    }
+    enemy._summonT = (enemy._summonT || 0) + 1;
+    if (enemy._summonT % 11 === 0) enemy.wantsSummon = true; // Game spawns the imps
   },
 
   // Boss 2 — Kitsune Spirit: fox-fire volleys that gently home in on the

@@ -105,6 +105,7 @@ function applyElement(game, e, el, dmg, src) {
       if (tier >= 2 && e.curse >= 6) {
         e.curse = 0;
         game.popup(e, "DOOM", ELEMENTS.dark.light);
+        SOUND.play("reaction", "DOOM");
         game.explode(e.x, e.y, 80, dmg * 2 * pot, null, src);
       }
       break;
@@ -113,6 +114,9 @@ function applyElement(game, e, el, dmg, src) {
 
 function triggerReaction(game, r, e, dmg, pot) {
   game.popup(e, r.name, r.color);
+  SOUND.play("reaction", r.name);
+  game.shake(0.12);
+  game.freeze(0.025);
   switch (r.name) {
     case "SHATTER":
       game.spawnParticles(e.x, e.y, ELEMENTS.frost.light, 14);

@@ -273,3 +273,80 @@ button.small { font-size: 8px; padding: 8px 12px; min-width: 0; }
 .tt-el { margin-bottom: 4px; }
 .tt-mut { color: #ffb0ff; }
 .weapon-card .desc { color: var(--cream); }
+
+/* ---------- Main menu extras ---------- */
+
+.menu-row { display: flex; gap: 9px; justify-content: center; }
+.menu-row button { flex: 1; }
+.records { font-size: 8px; line-height: 1.8; color: var(--muted); text-align: center; text-shadow: 2px 2px 0 var(--ink); }
+.records .shards { color: var(--gold); }
+.shard-gain { font-size: 9px; color: var(--gold); margin: 0; text-shadow: 2px 2px 0 var(--ink); }
+.new-best { font-style: normal; color: var(--gold); margin-left: 6px; }
+
+/* ---------- Settings ---------- */
+
+.settings { display: flex; flex-direction: column; gap: 6px; min-width: 520px; font-size: 9px; }
+.set-row {
+  display: grid;
+  grid-template-columns: 1fr 190px 70px;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 2px solid var(--panel-light);
+  color: var(--muted);
+}
+.set-row > span:first-child { text-align: left; }
+.set-row .set-val { text-align: right; color: var(--cream); }
+.set-row.toggle {
+  /* reset the pixel-button look: toggles are plain rows */
+  font-size: 9px; min-width: 0; padding: 7px 0; background: none; box-shadow: none;
+  border: none; border-bottom: 2px solid var(--panel-light);
+  grid-template-columns: 1fr 70px; color: var(--muted); text-align: left; text-shadow: none;
+}
+.set-row.toggle:hover { background: var(--panel-light); color: var(--cream); }
+.set-row.toggle:active { transform: none; box-shadow: none; }
+.set-row .set-val.on { color: var(--green-light); }
+.set-row:last-child { border-bottom: none; }
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 12px;
+  background: var(--ink);
+  border: 2px solid var(--panel-light);
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 18px;
+  background: var(--gold);
+  border: 2px solid var(--ink);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 12px; height: 16px; border-radius: 0;
+  background: var(--gold);
+  border: 2px solid var(--ink);
+}
+
+/* ---------- Armory ---------- */
+
+.perks { display: grid; grid-template-columns: repeat(4, 180px); gap: 12px; justify-content: center; }
+.perk {
+  min-width: 0;
+  padding: 12px 9px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: var(--panel);
+  box-shadow: inset 0 0 0 var(--px) var(--panel-light), 0 var(--px) 0 var(--ink);
+  opacity: 0.75;
+}
+.perk:hover { background: var(--panel-light); }
+.perk.afford { opacity: 1; box-shadow: inset 0 0 0 var(--px) var(--gold), 0 var(--px) 0 var(--ink); }
+.perk.maxed { opacity: 1; box-shadow: inset 0 0 0 var(--px) var(--green), 0 var(--px) 0 var(--ink); }
+.perk-name { font-size: 9px; color: var(--cream); }
+.perk-desc { font-size: 7px; line-height: 1.6; color: var(--muted); min-height: 34px; }
+.perk-cost { font-size: 9px; color: var(--gold); }
+.perk.maxed .perk-cost { color: var(--green-light); }
+.pips { display: flex; gap: 4px; }
+.pips i { width: 12px; height: 6px; background: var(--ink); border: 1px solid var(--panel-light); }
+.pips i.on { background: var(--gold); }

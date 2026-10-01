@@ -28,9 +28,14 @@ const UPGRADES = [
     apply(p) { p.base.bulletSpeed *= 1.25; },
   },
   {
-    id: "rollCooldown", icon: "◈", name: "Quick Recovery", rarity: "common",
-    desc: "-20% roll cooldown (more energy)",
-    apply(p) { p.base.rollCooldown *= 0.8; },
+    id: "staminaRegen", icon: "◈", name: "Quick Recovery", rarity: "common",
+    desc: "+25% stamina regen",
+    apply(p) { p.base.staminaRegen *= 1.25; },
+  },
+  {
+    id: "maxStamina", icon: "▲", name: "Endurance", rarity: "common",
+    desc: "+20 max stamina",
+    apply(p) { p.maxStamina += 20; p.stamina = p.maxStamina; },
   },
   {
     id: "magnet", icon: "◎", name: "Magnet", rarity: "common",

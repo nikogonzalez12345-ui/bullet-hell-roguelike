@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="src/style.css?v=2026.09.30-7">
+<link rel="stylesheet" href="src/style.css?v=2026.09.30-8">
 </head>
 <body>
   <div id="app">
@@ -19,8 +19,13 @@
       <p class="tag">A BULLET HELL ROGUELIKE</p>
       <div class="menu">
         <button data-action="new">NEW GAME</button>
-        <button data-action="controls" class="alt">CONTROLS</button>
+        <div class="menu-row">
+          <button data-action="armory" class="alt small">ARMORY</button>
+          <button data-action="settings" class="alt small">SETTINGS</button>
+          <button data-action="controls" class="alt small">CONTROLS</button>
+        </div>
       </div>
+      <div id="records" class="records"></div>
       <div id="controlsPanel" class="panel keys hidden">
         <div class="row"><span>MOVE</span><span>WASD</span></div>
         <div class="row"><span>TURN / AIM</span><span>MOUSE</span></div>
@@ -41,10 +46,28 @@
       <h2>PAUSED</h2>
       <div class="menu">
         <button data-action="resume">RESUME</button>
+        <button data-action="settings" class="alt">SETTINGS</button>
         <button data-action="fullscreen" class="alt">TOGGLE FULLSCREEN</button>
         <button data-action="menu" class="alt">MAIN MENU</button>
       </div>
       <p class="footnote" id="seedLabel"></p>
+    </div>
+
+    <div id="settingsScreen" class="screen dim hidden">
+      <h2>SETTINGS</h2>
+      <div id="settingsPanel" class="panel settings"></div>
+      <div class="menu">
+        <button data-action="back">BACK</button>
+      </div>
+    </div>
+
+    <div id="armoryScreen" class="screen dim hidden">
+      <h2 class="gold">ARMORY</h2>
+      <p class="tag" id="shardCount"></p>
+      <div id="perkList" class="perks"></div>
+      <div class="menu">
+        <button data-action="back">BACK</button>
+      </div>
     </div>
 
     <div id="levelUpScreen" class="screen dim hidden">
@@ -84,6 +107,7 @@
     <div id="gameOverScreen" class="screen dim hidden">
       <h1 class="title red">YOU DIED</h1>
       <div id="finalStats" class="panel keys"></div>
+      <p id="shardGain" class="shard-gain"></p>
       <div class="menu">
         <button data-action="new">NEW GAME</button>
         <button data-action="menu" class="alt">MAIN MENU</button>
@@ -92,22 +116,24 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="src/constants.js?v=2026.09.30-7"></script>
-  <script src="src/utils.js?v=2026.09.30-7"></script>
-  <script src="src/ps1.js?v=2026.09.30-7"></script>
-  <script src="src/world.js?v=2026.09.30-7"></script>
-  <script src="src/elements.js?v=2026.09.30-7"></script>
-  <script src="src/models.js?v=2026.09.30-7"></script>
-  <script src="src/items.js?v=2026.09.30-7"></script>
-  <script src="src/weapons.js?v=2026.09.30-7"></script>
-  <script src="src/entities.js?v=2026.09.30-7"></script>
-  <script src="src/patterns.js?v=2026.09.30-7"></script>
-  <script src="src/director.js?v=2026.09.30-7"></script>
-  <script src="src/upgrades.js?v=2026.09.30-7"></script>
-  <script src="src/render3d.js?v=2026.09.30-7"></script>
-  <script src="src/hud.js?v=2026.09.30-7"></script>
-  <script src="src/ui.js?v=2026.09.30-7"></script>
-  <script src="src/game.js?v=2026.09.30-7"></script>
-  <script src="src/main.js?v=2026.09.30-7"></script>
+  <script src="src/constants.js?v=2026.09.30-8"></script>
+  <script src="src/utils.js?v=2026.09.30-8"></script>
+  <script src="src/ps1.js?v=2026.09.30-8"></script>
+  <script src="src/world.js?v=2026.09.30-8"></script>
+  <script src="src/elements.js?v=2026.09.30-8"></script>
+  <script src="src/models.js?v=2026.09.30-8"></script>
+  <script src="src/items.js?v=2026.09.30-8"></script>
+  <script src="src/weapons.js?v=2026.09.30-8"></script>
+  <script src="src/entities.js?v=2026.09.30-8"></script>
+  <script src="src/patterns.js?v=2026.09.30-8"></script>
+  <script src="src/director.js?v=2026.09.30-8"></script>
+  <script src="src/upgrades.js?v=2026.09.30-8"></script>
+  <script src="src/settings.js?v=2026.09.30-8"></script>
+  <script src="src/audio.js?v=2026.09.30-8"></script>
+  <script src="src/render3d.js?v=2026.09.30-8"></script>
+  <script src="src/hud.js?v=2026.09.30-8"></script>
+  <script src="src/ui.js?v=2026.09.30-8"></script>
+  <script src="src/game.js?v=2026.09.30-8"></script>
+  <script src="src/main.js?v=2026.09.30-8"></script>
 </body>
 </html>

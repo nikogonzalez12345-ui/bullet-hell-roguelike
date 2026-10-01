@@ -8,9 +8,10 @@ class Director {
     this.game = game;
     this.time = 0;
     this.spawnAcc = 0;
-    this.nextBoss = DIRECTOR.bossEvery;
     this.nextSwarm = DIRECTOR.firstSwarm;
-    this.bossIndex = 0;
+    this.stageBossDone = new Set(); // stage indices whose boss has appeared
+    this.nextEncore = Infinity;     // Inferno: bosses keep returning
+    this.encoreIndex = 0;
     INTENSITY.hp = DIRECTOR.hpBase;
     INTENSITY.damage = DIRECTOR.dmgBase;
   }
@@ -44,21 +45,46 @@ class Director {
       this.nextSwarm += DIRECTOR.swarmEvery;
       this.swarm();
     }
-    if (this.time >= this.nextBoss) {
-      this.nextBoss += DIRECTOR.bossEvery;
-      this.spawnBoss();
-    }
+    this.updateBosses();
     this.leash();
   }
 
+  // Each stage's own boss arrives 2:30 into the stage. Once in the last
+  // stage, every boss returns in rotation every 3 minutes, tougher each loop.
+  updateBosses() {
+    const st = this.game.stageIndex;
+    const stage = STAGES[st];
+    if (!this.stageBossDone.has(st) && this.time >= stage.start + DIRECTOR.stageBossAt) {
+      this.stageBossDone.add(st);
+      this.spawnBoss(STAGE_BOSSES[st], 0);
+      if (st === STAGES.length - 1) this.nextEncore = this.time + DIRECTOR.bossEvery;
+    }
+    if (this.time >= this.nextEncore) {
+      this.nextEncore += DIRECTOR.bossEvery;
+      const type = STAGE_BOSSES[this.encoreIndex % STAGE_BOSSES.length];
+      this.spawnBoss(type, 1 + Math.floor(this.encoreIndex / STAGE_BOSSES.length));
+      this.encoreIndex++;
+    }
+  }
+
+  // Base enemies throughout, plus each stage's own creatures.
   pickType() {
     const t = this.time;
-    return weightedPick([
-      { type: "grunt", weight: 10 },
-      { type: "shooter", weight: t > 30 ? 4 + t / 60 : 0 },
-      { type: "sniper", weight: t > 90 ? 2 + t / 90 : 0 },
-      { type: "orbiter", weight: t > 150 ? 2 + t / 120 : 0 },
-    ]).type;
+    const st = this.game.stageIndex;
+    const base = st === 0 ? 1 : 0.55;
+    const pool = [
+      { type: "grunt", weight: 10 * base },
+      { type: "shooter", weight: t > 30 ? (4 + t / 60) * base : 0 },
+      { type: "sniper", weight: t > 90 ? (2 + t / 90) * base : 0 },
+      { type: "orbiter", weight: t > 150 ? (2 + t / 120) * base : 0 },
+    ];
+    const extras = {
+      1: [["bat", 9], ["wisp", 5]],
+      2: [["slime", 8], ["golem", 3], ["bat", 3]],
+      3: [["imp", 8], ["elemental", 4], ["slime", 2]],
+    }[st] || [];
+    for (const [type, weight] of extras) pool.push({ type, weight });
+    return weightedPick(pool).type;
   }
 
   // A point in a ring around the player that's still on the island.
@@ -83,19 +109,16 @@ class Director {
     const p = this.game.player;
     const count = 8 + Math.floor(this.time / 40);
     const offset = rand(0, Math.PI * 2);
+    const type = ["grunt", "bat", "slime", "imp"][this.game.stageIndex] || "grunt";
     for (let i = 0; i < count; i++) {
       const a = offset + (i / count) * Math.PI * 2;
       const x = p.x + Math.cos(a) * 430, y = p.y + Math.sin(a) * 430;
-      if (Math.hypot(x, y) < ARENA_RADIUS - 30) this.spawn("grunt", x, y);
+      if (Math.hypot(x, y) < ARENA_RADIUS - 30) this.spawn(type, x, y);
     }
     this.game.showBanner("SWARM INCOMING", 2, "#ff9a3a");
   }
 
-  spawnBoss() {
-    const type = BOSS_CYCLE[this.bossIndex % BOSS_CYCLE.length];
-    // Each time the boss cycle repeats, bosses come back tougher.
-    const loop = Math.floor(this.bossIndex / BOSS_CYCLE.length);
-    this.bossIndex++;
+  spawnBoss(type, loop) {
     const p = this.spawnPoint(450, 560);
     this.spawn(type, p.x, p.y, INTENSITY.hp * 0.7 * (1 + loop * 0.6));
   }

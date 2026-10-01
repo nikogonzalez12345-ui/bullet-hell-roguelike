@@ -117,10 +117,15 @@ class Hud {
     hudBar(ctx, x + 42, y + 9, 264, 21, p.hp / p.maxHp, lowHp ? UI.boss : UI.hp);
     hudText(ctx, `${Math.ceil(p.hp)}/${p.maxHp}`, x + 296, y + 16, 8, UI.cream, "right");
 
-    const energy = p.rollReady ? 1 : 1 - p.rollCooldownTimer / p.rollCooldown;
-    hudText(ctx, "EN", x + 12, y + 41, 8, UI.energy.light);
-    hudBar(ctx, x + 42, y + 36, 264, 15, energy, UI.energy, 12);
-    if (p.rollReady) hudText(ctx, "READY", x + 296, y + 40, 8, UI.ink, "right");
+    // Stamina: sprint drains it, rolls cost a chunk. Winded = flashes red.
+    const winded = p.winded && Math.floor(performance.now() / 200) % 2 === 0;
+    hudText(ctx, "EN", x + 12, y + 41, 8, winded ? UI.hp.light : UI.energy.light);
+    hudBar(ctx, x + 42, y + 36, 264, 15, p.stamina / p.maxStamina, winded ? UI.hp : UI.energy, 12);
+    // Notch showing how much one roll costs.
+    const notch = x + 42 + 3 + Math.round((264 - 6) * (PLAYER.rollCost / p.maxStamina));
+    ctx.fillStyle = UI.ink;
+    ctx.fillRect(notch, y + 33, 2, 21);
+    if (p.winded) hudText(ctx, "WINDED", x + 296, y + 40, 8, UI.cream, "right");
 
     // Weapon chips: one row per slot, in the weapon's element colour, with
     // a star per mutation.
@@ -174,6 +179,15 @@ class Hud {
       if (!at) continue;
       ctx.globalAlpha = clamp((pop.dur - pop.t) / 0.3, 0, 1);
       hudText(ctx, pop.text, at.x, at.y, 8, pop.color, "center");
+      ctx.globalAlpha = 1;
+    }
+    // Damage numbers: pop up, drift, fade. Big hits get the large font.
+    for (const n of game.dmgNumbers) {
+      const at = game.renderer.projectPoint(n.x, n.y, n.h + n.t * 1.8);
+      if (!at) continue;
+      const pop = n.t < 0.08 ? 1.3 : 1; // brief scale-pop on spawn
+      ctx.globalAlpha = clamp((n.dur - n.t) / 0.25, 0, 1);
+      hudText(ctx, n.text, at.x, at.y, Math.round((n.big ? 16 : 8) * pop), n.color, "center");
       ctx.globalAlpha = 1;
     }
   }

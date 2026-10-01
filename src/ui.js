@@ -9,7 +9,7 @@ const STAT_ROWS = [
   ["DAMAGE", (p) => p.damage.toFixed(1)],
   ["FIRE RATE", (p) => `${p.fireRate.toFixed(1)}/S`],
   ["MOVE SPEED", (p) => Math.round(p.speed)],
-  ["ROLL CD", (p) => `${p.rollCooldown.toFixed(2)}S`],
+  ["STAMINA", (p) => `${Math.round(p.maxStamina)} (+${Math.round(p.staminaRegen)}/S)`],
   ["REGEN", (p) => `${p.regenPerSec.toFixed(1)}/S`],
   ["PICKUP", (p) => Math.round(p.pickupRadius)],
 ];
@@ -24,6 +24,8 @@ class GameUI {
       levelUp: $("levelUpScreen"),
       inventory: $("inventoryScreen"),
       gameOver: $("gameOverScreen"),
+      settings: $("settingsScreen"),
+      armory: $("armoryScreen"),
     };
     this.el = {
       controls: $("controlsPanel"),
@@ -38,13 +40,23 @@ class GameUI {
       tooltip: $("tooltip"),
       finalStats: $("finalStats"),
       seedLabel: $("seedLabel"),
+      records: $("records"),
+      shardGain: $("shardGain"),
+      settings: $("settingsPanel"),
+      shardCount: $("shardCount"),
+      perks: $("perkList"),
     };
+    this.returnTo = "mainMenu"; // where BACK goes from Settings
 
     document.getElementById("app").addEventListener("click", (e) => {
       const btn = e.target.closest("[data-action]");
       if (!btn) return;
       const a = btn.dataset.action;
+      SOUND.play("ui");
       if (a === "new") game.newGame();
+      else if (a === "settings") this.showSettings();
+      else if (a === "armory") this.showArmory();
+      else if (a === "back") this.returnTo === "pauseMenu" ? this.showPause(game) : this.showMainMenu();
       else if (a === "controls") this.el.controls.classList.toggle("hidden");
       else if (a === "resume") game.resume();
       else if (a === "menu") game.toMainMenu();
@@ -221,22 +233,115 @@ class GameUI {
     this.el.tooltip.classList.add("hidden");
   }
 
-  // ---- Game over / pause ---------------------------------------------------
+  // ---- Main menu / game over / pause ----------------------------------------
 
-  showGameOver(g) {
+  showMainMenu() {
+    const r = SAVE.records;
+    this.el.records.innerHTML = r.runs
+      ? `<div>BEST ${fmtClock(r.bestTime)} · ${STAGES[r.bestStage].name.toUpperCase()} · ${r.bestKills} KILLS</div>
+         <div class="shards">◆ ${SAVE.meta.shards} SHARDS · ${r.runs} RUN${r.runs === 1 ? "" : "S"}</div>`
+      : `<div>NO RUNS YET</div>`;
+    this.returnTo = "mainMenu";
+    this.show("mainMenu");
+  }
+
+  showGameOver(g, result = { shards: 0, newBest: [] }) {
     const p = g.player;
+    const best = (key) => result.newBest.includes(key) ? ` <em class="new-best">NEW BEST</em>` : "";
     this.el.finalStats.innerHTML = [
-      ["SURVIVED", fmtClock(g.director.time)],
+      ["SURVIVED", fmtClock(g.director.time) + best("bestTime")],
+      ["STAGE", STAGES[g.stageIndex].name.toUpperCase() + best("bestStage")],
       ["LEVEL", p.level],
-      ["KILLS", p.kills],
-      ["SCORE", g.score],
+      ["KILLS", p.kills + best("bestKills")],
+      ["SCORE", g.score + best("bestScore")],
       ["ISLAND SEED", g.seed],
     ].map(([k, v]) => `<div class="row"><span>${k}</span><span>${v}</span></div>`).join("");
+    this.el.shardGain.textContent = `+${result.shards} SHARDS ◆ ${SAVE.meta.shards} TOTAL · SPEND THEM IN THE ARMORY`;
     this.show("gameOver");
   }
 
   showPause(g) {
     this.el.seedLabel.textContent = `ISLAND SEED ${g.seed}`;
+    this.returnTo = "pauseMenu";
     this.show("pauseMenu");
+  }
+
+  // ---- Settings --------------------------------------------------------------
+
+  showSettings() {
+    const s = SAVE.settings;
+    const sliders = [
+      ["sensitivity", "MOUSE SENSITIVITY", 0.2, 3, 0.05, (v) => v.toFixed(2) + "x"],
+      ["master", "MASTER VOLUME", 0, 1, 0.05, (v) => Math.round(v * 100) + "%"],
+      ["music", "MUSIC", 0, 1, 0.05, (v) => Math.round(v * 100) + "%"],
+      ["sfx", "SOUND EFFECTS", 0, 1, 0.05, (v) => Math.round(v * 100) + "%"],
+    ];
+    const toggles = [
+      ["shake", "SCREEN SHAKE"],
+      ["damageNumbers", "DAMAGE NUMBERS"],
+      ["autoFullscreen", "FULLSCREEN ON NEW GAME"],
+    ];
+    const panel = this.el.settings;
+    panel.innerHTML = "";
+    for (const [key, label, min, max, step, fmt] of sliders) {
+      const row = document.createElement("label");
+      row.className = "set-row";
+      row.innerHTML = `<span>${label}</span>
+        <input type="range" min="${min}" max="${max}" step="${step}" value="${s[key]}">
+        <span class="set-val">${fmt(s[key])}</span>`;
+      const input = row.querySelector("input");
+      const val = row.querySelector(".set-val");
+      input.addEventListener("input", () => {
+        s[key] = parseFloat(input.value);
+        val.textContent = fmt(s[key]);
+        SOUND.applyVolumes();
+      });
+      input.addEventListener("change", () => { persist(); if (key === "sfx" || key === "master") SOUND.play("gem", 0); });
+      panel.appendChild(row);
+    }
+    for (const [key, label] of toggles) {
+      const row = document.createElement("button");
+      row.className = "set-row toggle";
+      const paint = () => { row.innerHTML = `<span>${label}</span><span class="set-val ${s[key] ? "on" : ""}">${s[key] ? "ON" : "OFF"}</span>`; };
+      paint();
+      row.addEventListener("click", () => {
+        s[key] = !s[key];
+        persist();
+        paint();
+        SOUND.play("ui");
+      });
+      panel.appendChild(row);
+    }
+    this.show("settings");
+  }
+
+  // ---- Armory (permanent perks) ----------------------------------------------
+
+  showArmory() {
+    this.el.shardCount.textContent = `◆ ${SAVE.meta.shards} SHARDS · EARNED EVERY RUN`;
+    this.el.perks.innerHTML = "";
+    for (const perk of PERKS) {
+      const rank = perkRank(perk.id);
+      const maxed = rank >= perk.costs.length;
+      const cost = maxed ? 0 : perk.costs[rank];
+      const afford = !maxed && SAVE.meta.shards >= cost;
+      const card = document.createElement("button");
+      card.className = "perk" + (maxed ? " maxed" : afford ? " afford" : "");
+      const pips = perk.costs.map((_, i) => `<i class="${i < rank ? "on" : ""}"></i>`).join("");
+      card.innerHTML = `<div class="perk-name">${perk.name.toUpperCase()}</div>
+        <div class="pips">${pips}</div>
+        <div class="perk-desc">${perk.desc.toUpperCase()}</div>
+        <div class="perk-cost">${maxed ? "MAXED" : `◆ ${cost}`}</div>`;
+      card.addEventListener("click", () => {
+        if (buyPerk(perk.id)) {
+          SOUND.play("levelup");
+          this.showArmory();
+        } else if (!maxed) {
+          SOUND.play("denied");
+        }
+      });
+      this.el.perks.appendChild(card);
+    }
+    this.show("armory");
   }
 }

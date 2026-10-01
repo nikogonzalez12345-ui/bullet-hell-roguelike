@@ -18,6 +18,8 @@ const CHARACTER_SPECS = {
   orbiter: { skin: "#ffd9ef", hair: "#ff6bd0", eye: "#ff3b9c", shirt: "#b33d92", floating: true, halo: true, scale: 0.9 },
   boss_oni:     { skin: "#c83a2e", hair: "#1a0a0a", eye: "#ffe066", shirt: "#3a0f0f", pants: "#2a0a0a", weapon: "bigClub", horns: "#f2e6c8", bigHorns: true, scale: 2.3 },
   boss_kitsune: { skin: "#fff3e6", hair: "#ffffff", eye: "#ff3b6b", shirt: "#8a2a5a", pants: "#8a2a5a", foxEars: true, tails: 5, hover: 0.6, scale: 2.0 },
+  boss_demon:   { skin: "#8a1a1a", hair: "#1a0505", eye: "#ff7a1a", shirt: "#2a0505", pants: "#1a0505", weapon: "bigClub", horns: "#e8d8b0", bigHorns: true, wings: "#2a0508", scale: 2.6 },
+  imp:          { skin: "#c83a2a", hair: "#3a0a0a", eye: "#ffd23b", shirt: "#5a0a0a", floating: true, horns: "#2a0a0a", wings: "#3a0a14", scale: 0.85 },
 };
 
 class CharacterModel {
@@ -128,6 +130,20 @@ class CharacterModel {
         this.body.add(pivot);
         this.tails.push(pivot);
       }
+    }
+
+    if (s.wings) {
+      // Bat-like wings on pivots at the shoulder blades; flapped in update().
+      const wingMat = this.mat({ map: this.tex(s.wings), doubleSide: true });
+      this.wings = [-1, 1].map((side) => {
+        const pivot = new THREE.Group();
+        pivot.position.set(side * 0.15, 1.45 - 0.9, -0.2);
+        const w = new THREE.Mesh(box(0.8, 0.5, 0.03), wingMat);
+        w.position.x = side * 0.42;
+        pivot.add(w);
+        this.body.add(pivot);
+        return { pivot, side };
+      });
     }
 
     this.buildWeapon(s.weapon);
@@ -244,6 +260,10 @@ class CharacterModel {
     this.body.rotation.x = rolling ? eased * Math.PI * 2 : 0;
     this.body.scale.y = 1 - 0.2 * k;
 
+    if (this.wings) {
+      const flap = Math.sin(t * (s.floating ? 14 : 5)) * 0.6;
+      for (const { pivot, side } of this.wings) pivot.rotation.set(0, side * 0.5, side * flap);
+    }
     if (this.halo) this.halo.rotation.z = t * 2;
     if (this.tails) {
       this.tails.forEach((p, i) => { p.rotation.x = -0.9 + Math.sin(t * 2 + i) * 0.2; });
@@ -345,8 +365,167 @@ class DragonModel {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Non-humanoid stage creatures: bat, wisp, slime, crystal golem, fire
+// elemental. Same interface as CharacterModel (root, mats, update, flash).
+// ---------------------------------------------------------------------------
+
+const CREATURE_TYPES = new Set(["bat", "wisp", "slime", "slime_small", "golem", "elemental"]);
+
+class CreatureModel {
+  constructor(type) {
+    this.type = type;
+    this.mats = [];
+    this.time = rand(0, 10);
+    this.root = new THREE.Group();
+    this.body = new THREE.Group();
+    this.root.add(this.body);
+    this.anim = [];
+    this["build_" + (type === "slime_small" ? "slime" : type)]();
+    if (type === "slime_small") this.root.scale.setScalar(0.62);
+  }
+
+  mat(opts) {
+    const m = ps1Material(opts);
+    this.mats.push(m);
+    return m;
+  }
+
+  add(geo, mat, x, y, z, parent = this.body) {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    parent.add(m);
+    return m;
+  }
+
+  build_bat() {
+    const fur = this.mat({ map: solidTexture("#3a2a4a") });
+    const eye = this.mat({ color: "#ff3a3a", unlit: true });
+    this.body.position.y = 1.5;
+    this.add(cachedGeo("batBody", () => new THREE.SphereGeometry(0.28, 6, 5)), fur, 0, 0, 0);
+    this.add(cone(0.07, 0.22, 3), fur, -0.13, 0.28, 0);
+    this.add(cone(0.07, 0.22, 3), fur, 0.13, 0.28, 0);
+    this.add(box(0.07, 0.05, 0.04), eye, -0.09, 0.05, 0.25);
+    this.add(box(0.07, 0.05, 0.04), eye, 0.09, 0.05, 0.25);
+    const wing = this.mat({ map: solidTexture("#5a3a7a"), doubleSide: true });
+    this.wings = [-1, 1].map((side) => {
+      const pivot = new THREE.Group();
+      pivot.position.x = side * 0.2;
+      const w = this.add(cachedGeo("batWing", () => new THREE.BoxGeometry(0.8, 0.03, 0.42)), wing, side * 0.4, 0, 0, pivot);
+      w.rotation.y = side * 0.2;
+      this.body.add(pivot);
+      return { pivot, side };
+    });
+  }
+
+  build_wisp() {
+    const core = this.mat({ color: "#bff6ff", unlit: true });
+    const flame = this.mat({ color: "#5ad8ff", unlit: true });
+    const dark = this.mat({ color: "#0a2a3a", unlit: true });
+    this.body.position.y = 1.3;
+    this.add(cachedGeo("wispCore", () => new THREE.IcosahedronGeometry(0.32, 1)), core, 0, 0, 0);
+    this.flame = this.add(cone(0.22, 0.55, 5), flame, 0, 0.35, -0.05);
+    this.add(box(0.07, 0.1, 0.04), dark, -0.1, 0.03, 0.29);
+    this.add(box(0.07, 0.1, 0.04), dark, 0.1, 0.03, 0.29);
+  }
+
+  build_slime() {
+    this.gel = this.mat({ map: solidTexture("#4ac82a") });
+    const eye = this.mat({ color: "#0a1a06", unlit: true });
+    const shine = this.mat({ color: "#d8ffb0", unlit: true });
+    this.blob = this.add(cachedGeo("slimeBody", () => jitterGeometry(new THREE.SphereGeometry(0.6, 8, 6), 0.05, 3)), this.gel, 0, 0.45, 0);
+    this.blob.scale.set(1, 0.75, 1);
+    this.add(box(0.1, 0.16, 0.05), eye, -0.18, 0.55, 0.52);
+    this.add(box(0.1, 0.16, 0.05), eye, 0.18, 0.55, 0.52);
+    this.add(box(0.12, 0.06, 0.05), shine, -0.25, 0.8, 0.38);
+  }
+
+  build_golem() {
+    const stone = this.mat({ map: TEX.caveFloor });
+    const crystal = this.mat({ color: "#7ae8ff", unlit: true });
+    this.add(box(1.2, 1.0, 0.8), stone, 0, 1.5, 0);
+    this.add(box(0.55, 0.45, 0.5), stone, 0, 2.2, 0.1);
+    this.add(box(0.12, 0.06, 0.04), crystal, -0.12, 2.24, 0.36);
+    this.add(box(0.12, 0.06, 0.04), crystal, 0.12, 2.24, 0.36);
+    this.arms = [-1, 1].map((side) => {
+      const pivot = new THREE.Group();
+      pivot.position.set(side * 0.78, 1.85, 0);
+      this.add(box(0.35, 1.0, 0.4), stone, 0, -0.5, 0, pivot);
+      this.body.add(pivot);
+      return pivot;
+    });
+    this.add(box(0.4, 0.6, 0.45), stone, -0.3, 0.45, 0);
+    this.add(box(0.4, 0.6, 0.45), stone, 0.3, 0.45, 0);
+    [[-0.35, 2.1], [0.2, 2.25], [0.45, 1.95]].forEach(([x, y]) => {
+      const c = this.add(cachedGeo("crys", () => new THREE.OctahedronGeometry(0.2, 0)), crystal, x, y, -0.45);
+      c.scale.set(0.7, 2, 0.7);
+      c.rotation.x = -0.5;
+    });
+  }
+
+  build_elemental() {
+    const core = this.mat({ color: "#fff0a0", unlit: true });
+    const fire = this.mat({ color: "#ff8a1a", unlit: true });
+    const ember = this.mat({ color: "#ff3a0a", unlit: true });
+    this.body.position.y = 1.3;
+    this.add(cachedGeo("elemCore", () => new THREE.IcosahedronGeometry(0.4, 1)), core, 0, 0, 0);
+    this.flames = new THREE.Group();
+    this.body.add(this.flames);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      const f = this.add(cone(0.2, 0.7, 4), i % 2 ? fire : ember, Math.cos(a) * 0.45, 0.1, Math.sin(a) * 0.45, this.flames);
+      f.rotation.z = -Math.cos(a) * 0.4;
+      f.rotation.x = Math.sin(a) * 0.4;
+    }
+    this.add(cone(0.3, 0.9, 5), fire, 0, 0.55, 0);
+  }
+
+  flash(amount, color = "#ffffff") {
+    for (const m of this.mats) {
+      m.uniforms.flash.value = amount;
+      m.uniforms.flashColor.value.set(color);
+    }
+  }
+
+  update(dt, state) {
+    this.time += dt;
+    const t = this.time;
+    switch (this.type) {
+      case "bat":
+        this.body.position.y = 1.5 + Math.sin(t * 3) * 0.2;
+        for (const { pivot, side } of this.wings) pivot.rotation.z = side * Math.sin(t * 18) * 0.8;
+        break;
+      case "wisp":
+        this.body.position.y = 1.3 + Math.sin(t * 2.2) * 0.18;
+        this.flame.scale.set(1, 1 + Math.sin(t * 15) * 0.25, 1);
+        break;
+      case "slime":
+      case "slime_small": {
+        // Squash on the ground, stretch in the air.
+        const sy = state.airborne ? 1.0 : 0.72 + Math.sin(t * 6) * 0.05;
+        this.blob.scale.set(state.airborne ? 0.85 : 1.08, sy, state.airborne ? 0.85 : 1.08);
+        break;
+      }
+      case "golem":
+        this.body.rotation.z = Math.sin(t * 2.2) * 0.04;
+        this.arms.forEach((a, i) => { a.rotation.x = Math.sin(t * 2.2 + i * Math.PI) * 0.3; });
+        break;
+      case "elemental":
+        this.body.position.y = 1.3 + Math.sin(t * 2.6) * 0.15;
+        this.flames.rotation.y = t * 3;
+        break;
+    }
+  }
+
+  dispose() {
+    for (const m of this.mats) m.dispose();
+  }
+}
+
 function createModel(type) {
-  return type === "boss_dragon" ? new DragonModel() : new CharacterModel(type);
+  if (type === "boss_dragon") return new DragonModel();
+  if (CREATURE_TYPES.has(type)) return new CreatureModel(type);
+  return new CharacterModel(type);
 }
 
 // ---------------------------------------------------------------------------
