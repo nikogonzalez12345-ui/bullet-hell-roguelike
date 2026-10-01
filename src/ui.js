@@ -124,7 +124,7 @@ class GameUI {
       const n = p.affinity[id];
       const tier = affinityTier(n);
       const bonuses = AFFINITY_TEXT[id].map((t, k) =>
-        `<div class="aff-bonus ${k < tier ? "on" : ""}">${AFFINITY_TIERS[k]}: ${t.toUpperCase()}</div>`).join("");
+        `<div class="aff-bonus ${k < tier ? "on" : ""}">${AFFINITY_TIERS[k]}: ${t}</div>`).join("");
       return `<div class="aff ${n ? "" : "dim"}" style="--ec:${el.color}">
         <div class="aff-head"><span class="aff-name">${el.name.toUpperCase()}</span><span>${n}</span></div>${bonuses}</div>`;
     }).join("");
@@ -191,7 +191,7 @@ class GameUI {
       const b = WEAPON_BASES[item.base];
       const p = this.game.player;
       const muts = item.mutations.map((m) =>
-        `<div class="tt-mut">✦ ${MUTATIONS[m].name.toUpperCase()}: ${MUTATIONS[m].desc.toUpperCase()}</div>`).join("");
+        `<div class="tt-mut">✦ ${MUTATIONS[m].name}: ${MUTATIONS[m].desc}</div>`).join("");
       return `<div class="tt-name" style="color:${r.color}">${item.name.toUpperCase()}</div>
         <div class="tt-sub">${r.name.toUpperCase()} ${WEAPON_CLASSES[b.cls].name.toUpperCase()} · ILVL ${item.level}</div>
         ${elLine}
@@ -202,7 +202,7 @@ class GameUI {
     return `<div class="tt-name" style="color:${r.color}">${item.name.toUpperCase()}</div>
       <div class="tt-sub">${r.name.toUpperCase()} ${SLOT_BY_ID[item.slot].name.toUpperCase()} · ILVL ${item.level}</div>
       ${elLine}
-      ${statLines(item.stats).map((l) => `<div class="tt-stat">${l.toUpperCase()}</div>`).join("")}`;
+      ${statLines(item.stats).map((l) => `<div class="tt-stat">${l}</div>`).join("")}`;
   }
 
   bindTooltip(cell, item, compare, hint) {
@@ -331,7 +331,7 @@ class GameUI {
       const pips = perk.costs.map((_, i) => `<i class="${i < rank ? "on" : ""}"></i>`).join("");
       card.innerHTML = `<div class="perk-name">${perk.name.toUpperCase()}</div>
         <div class="pips">${pips}</div>
-        <div class="perk-desc">${perk.desc.toUpperCase()}</div>
+        <div class="perk-desc">${perk.desc}</div>
         <div class="perk-cost">${maxed ? "MAXED" : `◆ ${cost}`}</div>`;
       card.addEventListener("click", () => {
         if (buyPerk(perk.id)) {

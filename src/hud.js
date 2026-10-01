@@ -1,57 +1,146 @@
-// Pixel-art HUD drawn on the 2D overlay canvas. Everything snaps to a 3px
-// grid and uses the island palette (UI in constants.js) so it reads like
-// part of the same low-res world.
+// Angelic HUD drawn on the 2D overlay canvas: ivory and gold on deep
+// celestial glass, Cinzel lettering, glowing pill-shaped bars with gold
+// rims, halo medallions and little four-point stars. Palette in UI
+// (constants.js).
 
 const PX = 3;
 // Radar sits in the top-right corner of whatever size the screen currently is.
-const RADAR = { r: 66, range: 700, get x() { return CANVAS_W - 84; }, get y() { return VIEW_TOP + 84; } };
+const RADAR = { r: 66, range: 700, get x() { return CANVAS_W - 86; }, get y() { return VIEW_TOP + 86; } };
 
-function hudText(ctx, text, x, y, size, color, align = "left") {
-  ctx.font = `${size}px ${UI.font}`;
+// Sizes are given in the old pixel-font units (8 = small label); Cinzel
+// needs to be drawn larger to read the same.
+const fontPx = (size) => Math.round(size <= 8 ? size * 1.6 : size * 1.38);
+
+function hudFont(ctx, size, weight = 700) {
+  ctx.font = `${weight} ${fontPx(size)}px ${UI.font}`;
+}
+
+// Text with a soft dark halo (readable over any scene) and an optional glow.
+function hudText(ctx, text, x, y, size, color, align = "left", glow = null) {
+  hudFont(ctx, size);
   ctx.textAlign = align;
   ctx.textBaseline = "top";
-  const o = size >= 16 ? PX : 2;
-  ctx.fillStyle = UI.ink;
-  ctx.fillText(text, x + o, y + o);
+  const px = fontPx(size);
+  ctx.lineJoin = "round";
+  ctx.lineWidth = Math.max(3, px * 0.26);
+  ctx.strokeStyle = UI.shadow;
+  ctx.strokeText(text, x, y);
+  if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = px * 0.7; }
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
+  ctx.shadowBlur = 0;
 }
 
-// Ink outline, maroon fill, a lighter inner rim — a chunky pixel frame.
-function hudPanel(ctx, x, y, w, h, alpha = 0.85) {
+function textWidth(ctx, text, size) {
+  hudFont(ctx, size);
+  return ctx.measureText(text).width;
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// Four-point sparkle.
+function hudStar(ctx, x, y, r, color, glow = true) {
+  ctx.save();
+  if (glow) { ctx.shadowColor = color; ctx.shadowBlur = r * 2; }
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x, y - r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.quadraticCurveTo(x, y, x, y + r);
+  ctx.quadraticCurveTo(x, y, x - r, y);
+  ctx.quadraticCurveTo(x, y, x, y - r);
+  ctx.fill();
+  ctx.restore();
+}
+
+function hudHeart(ctx, x, y, s, color) {
+  ctx.save();
+  ctx.shadowColor = color; ctx.shadowBlur = 8;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x, y + s * 0.9);
+  ctx.bezierCurveTo(x - s * 1.2, y + s * 0.1, x - s * 0.8, y - s * 0.8, x, y - s * 0.25);
+  ctx.bezierCurveTo(x + s * 0.8, y - s * 0.8, x + s * 1.2, y + s * 0.1, x, y + s * 0.9);
+  ctx.fill();
+  ctx.restore();
+}
+
+// Celestial glass panel: deep blue gradient, gold rim with a soft glow, a
+// faint inner line, and stars in the corners.
+function hudPanel(ctx, x, y, w, h, alpha = 1, stars = true) {
+  ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.fillStyle = UI.ink;
-  ctx.fillRect(x, y, w, h);
-  ctx.fillStyle = UI.panelLight;
-  ctx.fillRect(x + PX, y + PX, w - PX * 2, h - PX * 2);
-  ctx.fillStyle = UI.panel;
-  ctx.fillRect(x + PX * 2, y + PX * 2, w - PX * 4, h - PX * 4);
-  ctx.globalAlpha = 1;
+  roundRect(ctx, x, y, w, h, 10);
+  const g = ctx.createLinearGradient(0, y, 0, y + h);
+  g.addColorStop(0, "rgba(46, 54, 108, 0.78)");
+  g.addColorStop(1, "rgba(14, 16, 42, 0.82)");
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.shadowColor = "rgba(255, 220, 140, 0.5)";
+  ctx.shadowBlur = 10;
+  ctx.strokeStyle = UI.gold;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  roundRect(ctx, x + 4, y + 4, w - 8, h - 8, 7);
+  ctx.strokeStyle = "rgba(255, 236, 190, 0.28)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+  if (stars) {
+    for (const [sx, sy] of [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]) hudStar(ctx, sx, sy, 4, UI.goldLight, false);
+  }
 }
 
-// Segmented bar: ink border, dark trough, fill with a highlight row on top
-// and a shade row underneath, plus notches every `seg` pixels.
-function hudBar(ctx, x, y, w, h, pct, pal, seg = 15) {
-  ctx.fillStyle = UI.ink;
-  ctx.fillRect(x, y, w, h);
-  ctx.fillStyle = pal.dark;
-  ctx.globalAlpha = 0.45;
-  ctx.fillRect(x + PX, y + PX, w - PX * 2, h - PX * 2);
-  ctx.globalAlpha = 1;
-  const inner = w - PX * 2;
-  const fw = Math.round((inner * clamp(pct, 0, 1)) / PX) * PX;
-  if (fw > 0) {
-    ctx.fillStyle = pal.fill;
-    ctx.fillRect(x + PX, y + PX, fw, h - PX * 2);
-    ctx.fillStyle = pal.light;
-    ctx.fillRect(x + PX, y + PX, fw, PX);
-    ctx.fillStyle = pal.dark;
-    ctx.fillRect(x + PX, y + h - PX * 2, fw, PX);
+// Glowing pill bar: dark trough, gradient fill with a glossy top, a bright
+// leading edge, and a thin gold rim.
+function hudBar(ctx, x, y, w, h, pct, pal, seg = 0) {
+  const r = h / 2;
+  roundRect(ctx, x, y, w, h, r);
+  ctx.fillStyle = "rgba(6, 8, 24, 0.82)";
+  ctx.fill();
+  const inner = w - 4;
+  const fw = inner * clamp(pct, 0, 1);
+  if (fw > 0.5) {
+    ctx.save();
+    roundRect(ctx, x + 2, y + 2, inner, h - 4, r - 2);
+    ctx.clip();
+    const g = ctx.createLinearGradient(x, 0, x + w, 0);
+    g.addColorStop(0, pal.dark);
+    g.addColorStop(0.55, pal.fill);
+    g.addColorStop(1, pal.light);
+    ctx.shadowColor = pal.fill;
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = g;
+    ctx.fillRect(x + 2, y + 2, fw, h - 4);
+    ctx.shadowBlur = 0;
+    const gl = ctx.createLinearGradient(0, y, 0, y + h);
+    gl.addColorStop(0, "rgba(255, 255, 255, 0.55)");
+    gl.addColorStop(0.45, "rgba(255, 255, 255, 0.06)");
+    gl.addColorStop(1, "rgba(0, 0, 0, 0.18)");
+    ctx.fillStyle = gl;
+    ctx.fillRect(x + 2, y + 2, fw, h - 4);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+    ctx.fillRect(x + 2 + fw - 2, y + 2, 2, h - 4);
+    if (seg) {
+      ctx.fillStyle = "rgba(8, 10, 30, 0.25)";
+      for (let sx = x + seg; sx < x + 2 + fw; sx += seg) ctx.fillRect(sx, y + 2, 1, h - 4);
+    }
+    ctx.restore();
   }
-  ctx.fillStyle = UI.ink;
-  ctx.globalAlpha = 0.5;
-  for (let sx = x + PX + seg; sx < x + w - PX; sx += seg) ctx.fillRect(sx, y + PX, PX / 3 * 1, h - PX * 2);
-  ctx.globalAlpha = 1;
+  roundRect(ctx, x, y, w, h, r);
+  ctx.strokeStyle = UI.gold;
+  ctx.lineWidth = 1.25;
+  ctx.stroke();
 }
 
 // Accent colour for each stage's title text.
@@ -76,7 +165,6 @@ class Hud {
   draw(game, dt) {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-    ctx.imageSmoothingEnabled = false;
     if (game.state === STATE.MENU) return;
 
     if (game.damageFlash > 0) this.drawDamage(ctx, game.damageFlash);
@@ -111,65 +199,79 @@ class Hud {
 
   drawVitals(ctx, game) {
     const p = game.player;
-    const x = 12, y = VIEW_TOP + 9;
-    hudPanel(ctx, x, y, 318, 66);
+    const x = 12, y = VIEW_TOP + 10;
+    hudPanel(ctx, x, y, 322, 66);
     const lowHp = p.hp / p.maxHp < 0.25 && Math.floor(performance.now() / 250) % 2 === 0;
-    hudText(ctx, "HP", x + 12, y + 14, 8, lowHp ? "#ffffff" : UI.hp.light);
-    hudBar(ctx, x + 42, y + 9, 264, 21, p.hp / p.maxHp, lowHp ? UI.boss : UI.hp);
-    hudText(ctx, `${Math.ceil(p.hp)}/${p.maxHp}`, x + 296, y + 16, 8, UI.cream, "right");
+    hudHeart(ctx, x + 20, y + 21, 8, lowHp ? "#ffffff" : UI.hp.fill);
+    hudBar(ctx, x + 36, y + 11, 272, 20, p.hp / p.maxHp, lowHp ? UI.boss : UI.hp, 24);
+    hudText(ctx, `${Math.ceil(p.hp)} / ${p.maxHp}`, x + 36 + 136, y + 14, 7, UI.cream, "center");
 
-    // Stamina: sprint drains it, rolls cost a chunk. Winded = flashes red.
+    // Stamina: sprint drains it, rolls cost a chunk. Winded = flashes.
     const winded = p.winded && Math.floor(performance.now() / 200) % 2 === 0;
-    hudText(ctx, "EN", x + 12, y + 41, 8, winded ? UI.hp.light : UI.energy.light);
-    hudBar(ctx, x + 42, y + 36, 264, 15, p.stamina / p.maxStamina, winded ? UI.hp : UI.energy, 12);
+    hudStar(ctx, x + 20, y + 46, 7, winded ? UI.hp.light : UI.energy.light);
+    hudBar(ctx, x + 36, y + 39, 272, 14, p.stamina / p.maxStamina, winded ? UI.hp : UI.energy, 20);
     // Notch showing how much one roll costs.
-    const notch = x + 42 + 3 + Math.round((264 - 6) * (PLAYER.rollCost / p.maxStamina));
-    ctx.fillStyle = UI.ink;
-    ctx.fillRect(notch, y + 33, 2, 21);
-    if (p.winded) hudText(ctx, "WINDED", x + 296, y + 40, 8, UI.cream, "right");
+    const notch = x + 38 + Math.round((272 - 4) * (PLAYER.rollCost / p.maxStamina));
+    ctx.fillStyle = UI.goldLight;
+    ctx.fillRect(notch, y + 36, 1.5, 20);
+    if (p.winded) hudText(ctx, "WINDED", x + 36 + 136, y + 39, 6, UI.cream, "center");
 
-    // Weapon chips: one row per slot, in the weapon's element colour, with
-    // a star per mutation.
-    let wy = y + 72;
+    // Weapon chips: one glass pill per slot with a star in the weapon's
+    // element colour, plus a sparkle per mutation.
+    let wy = y + 74;
     p.weaponSlots.forEach((item, i) => {
       if (!item) return;
       const el = elementOf(item.element);
-      const label = `${i + 1} ${WEAPON_BASES[item.base].name.toUpperCase()}${"*".repeat(item.mutations.length)}`;
-      const cw = label.length * 8 + 18;
-      ctx.fillStyle = UI.ink;
-      ctx.fillRect(x, wy, cw, 18);
-      ctx.fillStyle = el.color;
-      ctx.fillRect(x + PX, wy + PX, PX, 12);
-      hudText(ctx, label, x + 12, wy + 5, 8, item.mutations.length ? el.light : el.color);
-      wy += 21;
+      const label = WEAPON_BASES[item.base].name + " ✦".repeat(item.mutations.length);
+      const cw = textWidth(ctx, label, 7) + 36;
+      roundRect(ctx, x, wy, cw, 20, 10);
+      ctx.fillStyle = "rgba(14, 18, 46, 0.72)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(240, 207, 126, 0.55)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      hudText(ctx, String(i + 1), x + 9, wy + 4, 6, UI.muted);
+      hudStar(ctx, x + 22, wy + 10, 5, el.color);
+      hudText(ctx, label, x + 30, wy + 3, 7, item.mutations.length ? el.light : UI.cream);
+      wy += 23;
     });
     if (game.autoFire) {
+      roundRect(ctx, x, wy, 70, 20, 10);
       ctx.fillStyle = UI.gold;
-      ctx.fillRect(x, wy, 66, 18);
-      hudText(ctx, "AUTO", x + 33, wy + 5, 8, UI.ink, "center");
-      wy += 21;
+      ctx.fill();
+      ctx.fillStyle = UI.ink;
+      hudFont(ctx, 7);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText("AUTO", x + 35, wy + 3);
+      wy += 23;
     }
     this.drawAffinity(ctx, p, x, wy + 3);
   }
 
-  // Element affinity tiles: colour, item count, and one pip per unlocked tier.
+  // Element affinity tiles: colour, item count, and one star per unlocked tier.
   drawAffinity(ctx, p, x, y) {
     let cx = x;
     for (const id of ELEMENT_IDS) {
       const n = p.affinity[id];
       if (!n) continue;
       const el = ELEMENTS[id];
-      ctx.fillStyle = UI.ink;
-      ctx.fillRect(cx, y, 30, 27);
-      ctx.fillStyle = el.dark;
-      ctx.fillRect(cx + 2, y + 2, 26, 23);
-      hudText(ctx, String(n), cx + 15, y + 5, 8, el.light, "center");
+      roundRect(ctx, cx, y, 32, 32, 8);
+      ctx.fillStyle = "rgba(14, 18, 46, 0.78)";
+      ctx.fill();
+      ctx.shadowColor = el.color;
+      ctx.shadowBlur = 6;
+      ctx.strokeStyle = el.color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      hudText(ctx, String(n), cx + 16, y + 3, 7, el.light, "center");
       const tier = affinityTier(n);
       for (let t = 0; t < 3; t++) {
-        ctx.fillStyle = t < tier ? el.color : UI.ink;
-        ctx.fillRect(cx + 5 + t * 7, y + 17, 5, 5);
+        if (t < tier) hudStar(ctx, cx + 8 + t * 8, y + 25, 3.2, el.light);
+        else { ctx.fillStyle = "rgba(184, 180, 208, 0.3)"; ctx.fillRect(cx + 7 + t * 8, y + 24, 2, 2); }
       }
-      cx += 33;
+      cx += 36;
     }
   }
 
@@ -188,65 +290,91 @@ class Hud {
       if (!at) continue;
       const pop = n.t < 0.08 ? 1.3 : 1; // brief scale-pop on spawn
       ctx.globalAlpha = clamp((n.dur - n.t) / 0.25, 0, 1);
-      hudText(ctx, n.text, at.x, at.y, Math.round((n.big ? 16 : 8) * pop), n.color, "center");
+      hudText(ctx, n.text, at.x, at.y, Math.round((n.big ? 15 : 8) * pop), n.color, "center", n.big ? n.color : null);
       ctx.globalAlpha = 1;
     }
   }
 
   drawClock(ctx, game) {
     const t = game.director ? game.director.time : 0;
-    const w = 150, x = CANVAS_W / 2 - w / 2, y = VIEW_TOP + 9;
-    hudPanel(ctx, x, y, w, 66);
-    hudText(ctx, fmtClock(t), CANVAS_W / 2, y + 10, 16, UI.gold, "center");
+    const w = 168, x = CANVAS_W / 2 - w / 2, y = VIEW_TOP + 10;
+    hudPanel(ctx, x, y, w, 72);
+    hudText(ctx, fmtClock(t), CANVAS_W / 2, y + 7, 17, UI.goldLight, "center", "rgba(255, 210, 120, 0.9)");
     const threat = game.director ? game.director.threat : 1;
-    const heat = ["#8fe04a", "#ffcf5c", "#f07a1e", "#d83a22", "#ff4a8a"][Math.min(4, Math.floor((threat - 1) / 2))];
-    hudText(ctx, `THREAT ${threat}`, CANVAS_W / 2, y + 32, 8, heat, "center");
+    const heat = ["#b8f0c0", "#fff0a0", "#ffc070", "#ff8a8a", "#ff6ac0"][Math.min(4, Math.floor((threat - 1) / 2))];
+    hudText(ctx, `THREAT ${threat}`, CANVAS_W / 2, y + 35, 6, heat, "center");
     const stage = STAGES[game.stageIndex || 0];
-    hudText(ctx, stage.name, CANVAS_W / 2, y + 54, 8, ELEMENT_BY_BIOME[stage.biome], "center");
+    hudText(ctx, stage.name, CANVAS_W / 2, y + 51, 7, ELEMENT_BY_BIOME[stage.biome], "center");
   }
 
   drawBoss(ctx, game) {
     const boss = game.activeBoss;
     if (!boss) return;
-    const w = 420, x = CANVAS_W / 2 - w / 2, y = VIEW_TOP + 80;
-    hudText(ctx, boss.name.toUpperCase(), CANVAS_W / 2, y, 8, "#ffb0c0", "center");
-    hudBar(ctx, x, y + 12, w, 15, boss.hp / boss.maxHp, UI.boss, 21);
+    const w = 420, x = CANVAS_W / 2 - w / 2, y = VIEW_TOP + 90;
+    hudText(ctx, boss.name.toUpperCase(), CANVAS_W / 2, y, 8, "#ffc0cc", "center", "rgba(255, 60, 90, 0.8)");
+    hudBar(ctx, x, y + 17, w, 14, boss.hp / boss.maxHp, UI.boss, 21);
   }
 
   drawXp(ctx, game) {
     const p = game.player;
     const need = XP.toNext(p.level);
-    const y = VIEW_TOP + VIEW_H - 27, x = 12, w = CANVAS_W - 24;
-    // Level badge
-    ctx.fillStyle = UI.ink;
-    ctx.fillRect(x, y - 6, 69, 27);
-    ctx.fillStyle = UI.xp.dark;
-    ctx.fillRect(x + PX, y - 3, 63, 21);
-    hudText(ctx, `LV${p.level}`, x + 35, y + 2, 8, UI.xp.light, "center");
-    hudBar(ctx, x + 72, y, w - 72, 15, p.xp / need, UI.xp, 24);
-    hudText(ctx, `${p.xp} / ${need} XP`, x + 72 + (w - 72) / 2, y + 4, 8, UI.cream, "center");
+    const y = VIEW_TOP + VIEW_H - 26, x = 12, w = CANVAS_W - 24;
+    hudBar(ctx, x + 44, y, w - 44, 13, p.xp / need, UI.xp, 0);
+    hudText(ctx, `${Math.floor(p.xp)} / ${need}`, x + 44 + (w - 44) / 2, y - 1, 6, UI.cream, "center");
+    // Level medallion with a halo above it.
+    const mx = x + 22, my = y + 6;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(mx, my, 20, 0, Math.PI * 2);
+    const g = ctx.createRadialGradient(mx, my - 6, 2, mx, my, 20);
+    g.addColorStop(0, "#fffaf0");
+    g.addColorStop(0.7, "#f2e2b8");
+    g.addColorStop(1, "#c89a48");
+    ctx.fillStyle = g;
+    ctx.shadowColor = "rgba(255, 220, 140, 0.8)";
+    ctx.shadowBlur = 12;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#b88a3a";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(mx, my - 25, 12, 3.5, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = UI.goldLight;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = UI.gold;
+    ctx.shadowBlur = 8;
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = "#2a2240";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    hudFont(ctx, 5);
+    ctx.fillText("LV", mx, my - 14);
+    hudFont(ctx, p.level >= 100 ? 7 : 9);
+    ctx.fillText(String(p.level), mx, my - 5);
   }
 
   drawHints(ctx, game) {
     const p = game.player;
     const bag = `${p.backpack.length}/${p.backpackSlots}`;
-    const text = `Q POTION ${p.potions}/${PLAYER.maxPotions}   TAB GEAR   BAG ${bag}`;
-    const w = text.length * 8 + 24;
-    const x = CANVAS_W - 12 - w, y = VIEW_TOP + VIEW_H - 60;
-    hudPanel(ctx, x, y, w, 27, 0.75);
-    hudText(ctx, text, x + 12, y + 10, 8, p.backpackFull ? UI.hp.light : UI.cream);
+    const text = `Q  POTION ${p.potions}/${PLAYER.maxPotions}    TAB  GEAR    BAG ${bag}`;
+    const w = textWidth(ctx, text, 6) + 30;
+    const x = CANVAS_W - 12 - w, y = VIEW_TOP + VIEW_H - 64;
+    hudPanel(ctx, x, y, w, 28, 0.9, false);
+    hudText(ctx, text, x + 15, y + 7, 6, p.backpackFull ? UI.hp.light : UI.cream);
   }
 
   drawMessages(ctx, dt) {
-    let y = VIEW_TOP + VIEW_H - 66;
+    let y = VIEW_TOP + VIEW_H - 72;
     for (let i = this.messages.length - 1; i >= 0; i--) {
       const m = this.messages[i];
       m.t -= dt;
       if (m.t <= 0) { this.messages.splice(i, 1); continue; }
       ctx.globalAlpha = clamp(m.t / 0.6, 0, 1);
-      hudText(ctx, m.text, 18, y, 8, m.color);
+      hudText(ctx, m.text, 18, y, 7, m.color);
       ctx.globalAlpha = 1;
-      y -= 15;
+      y -= 18;
     }
   }
 
@@ -261,31 +389,31 @@ class Hud {
     const w = Math.round(box.w * snap) + 4;
     const h = Math.round(box.h * snap) + 4;
     const arm = Math.max(6, Math.round(Math.min(w, h) * 0.45));
-    const rect = (x, y, rw, rh, col) => {
-      ctx.fillStyle = col;
-      ctx.fillRect(Math.min(x, x + rw), Math.min(y, y + rh), Math.abs(rw), Math.abs(rh));
-    };
+    // Glowing gold corner brackets with a star above the target.
+    ctx.save();
+    ctx.strokeStyle = UI.goldLight;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = UI.gold;
+    ctx.shadowBlur = 8;
     const corner = (cx, cy, sx, sy) => {
-      rect(cx - sx, cy - sy, sx * (arm + 2), sy * 5, UI.ink);
-      rect(cx - sx, cy - sy, sx * 5, sy * (arm + 2), UI.ink);
-      rect(cx, cy, sx * arm, sy * 3, UI.gold);
-      rect(cx, cy, sx * 3, sy * arm, UI.gold);
+      ctx.beginPath();
+      ctx.moveTo(cx + sx * arm, cy);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx, cy + sy * arm);
+      ctx.stroke();
     };
     corner(box.x - w, box.y - h, 1, 1);
     corner(box.x + w, box.y - h, -1, 1);
     corner(box.x - w, box.y + h, 1, -1);
     corner(box.x + w, box.y + h, -1, -1);
+    ctx.restore();
+    hudStar(ctx, box.x, box.y - h - (e.isBoss ? 6 : 22), 4, UI.goldLight);
 
     // Mini HP bar over regular enemies (bosses have the big one up top).
     if (!e.isBoss) {
       const bw = Math.max(24, w * 2 - 6);
       const bx = box.x - Math.floor(bw / 2), by = box.y - h - 12;
-      ctx.fillStyle = UI.ink;
-      ctx.fillRect(bx - 2, by - 2, bw + 4, 8);
-      ctx.fillStyle = UI.hp.dark;
-      ctx.fillRect(bx, by, bw, 4);
-      ctx.fillStyle = UI.hp.light;
-      ctx.fillRect(bx, by, Math.round(bw * clamp(e.hp / e.maxHp, 0, 1)), 4);
+      hudBar(ctx, bx, by, bw, 7, e.hp / e.maxHp, e.elite ? UI.xp : UI.boss);
     }
   }
 
@@ -305,17 +433,36 @@ class Hud {
     };
 
     ctx.save();
-    ctx.fillStyle = UI.ink;
-    ctx.beginPath(); ctx.arc(cx, cy, r + PX * 2, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = UI.panelLight;
-    ctx.beginPath(); ctx.arc(cx, cy, r + PX, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "rgba(20, 30, 20, 0.92)";
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    // Celestial glass disc with a glowing gold rim.
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(6, 8, 24, 0.9)";
+    ctx.shadowColor = "rgba(255, 220, 140, 0.6)";
+    ctx.shadowBlur = 12;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = UI.gold;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    const rg = ctx.createRadialGradient(cx, cy, 4, cx, cy, r);
+    rg.addColorStop(0, "rgba(46, 56, 112, 0.92)");
+    rg.addColorStop(1, "rgba(14, 16, 42, 0.95)");
+    ctx.fillStyle = rg;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255, 236, 190, 0.25)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
     ctx.clip();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.5, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255, 236, 190, 0.12)";
+    ctx.stroke();
 
     // Coastline ring
     const [ex, ey] = toRadar(0, 0);
-    ctx.strokeStyle = "rgba(111, 174, 58, 0.5)";
+    ctx.strokeStyle = "rgba(142, 200, 255, 0.45)";
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(ex, ey, ARENA_RADIUS * k, 0, Math.PI * 2); ctx.stroke();
 
@@ -323,7 +470,7 @@ class Hud {
       if (Math.abs(o.x - p.x) > range + o.r || Math.abs(o.y - p.y) > range + o.r) continue;
       if (o.hw) {
         // Walls and buildings: their real outline.
-        ctx.fillStyle = "rgba(150, 140, 120, 0.85)";
+        ctx.fillStyle = "rgba(240, 225, 190, 0.6)";
         ctx.beginPath();
         for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
           const lx = sx * o.hw, ly = sy * o.hh;
@@ -334,10 +481,10 @@ class Hud {
       }
       const [ox, oy] = toRadar(o.x, o.y);
       if (o.r > 40) {
-        ctx.fillStyle = "rgba(110, 120, 90, 0.75)";
+        ctx.fillStyle = "rgba(184, 180, 208, 0.35)";
         ctx.beginPath(); ctx.arc(ox, oy, o.r * k, 0, Math.PI * 2); ctx.fill();
       } else {
-        dot(ox, oy, 3, "rgba(90, 110, 70, 0.8)");
+        dot(ox, oy, 2, "rgba(184, 200, 170, 0.45)");
       }
     }
     for (const l of game.loot) {
@@ -354,24 +501,20 @@ class Hud {
       dot(ex2, ey2, e.isBoss ? 8 : 4, e.color);
     }
     ctx.restore();
-    // Player marker
-    ctx.fillStyle = UI.cream;
-    ctx.fillRect(cx - 1, cy - 5, 3, 3);
-    ctx.fillRect(cx - 3, cy - 2, 7, 3);
-    ctx.fillRect(cx - 4, cy + 1, 9, 3);
+    // Player marker: a little star.
+    hudStar(ctx, cx, cy, 6, UI.goldLight);
   }
 
+  // Soft coloured vignette (red on a hit, blue during Bullet Time).
   drawDamage(ctx, flash, color = UI.hp.fill) {
     const a = clamp(flash / 0.35, 0, 1);
-    ctx.fillStyle = color;
-    for (let i = 0; i < 4; i++) {
-      ctx.globalAlpha = a * (0.45 - i * 0.1);
-      const m = i * 9;
-      ctx.fillRect(m, VIEW_TOP + m, CANVAS_W - m * 2, 9);
-      ctx.fillRect(m, VIEW_TOP + VIEW_H - m - 9, CANVAS_W - m * 2, 9);
-      ctx.fillRect(m, VIEW_TOP + m + 9, 9, VIEW_H - m * 2 - 18);
-      ctx.fillRect(CANVAS_W - m - 9, VIEW_TOP + m + 9, 9, VIEW_H - m * 2 - 18);
-    }
+    const cx = CANVAS_W / 2, cy = VIEW_TOP + VIEW_H / 2;
+    const g = ctx.createRadialGradient(cx, cy, Math.min(CANVAS_W, VIEW_H) * 0.35, cx, cy, Math.max(CANVAS_W, VIEW_H) * 0.72);
+    g.addColorStop(0, "rgba(0, 0, 0, 0)");
+    g.addColorStop(1, color);
+    ctx.globalAlpha = a * 0.75;
+    ctx.fillStyle = g;
+    ctx.fillRect(0, VIEW_TOP, CANVAS_W, VIEW_H);
     ctx.globalAlpha = 1;
   }
 
@@ -381,7 +524,18 @@ class Hud {
     const fadeIn = clamp((total - game.bannerTimer) / 0.3, 0, 1);
     const fadeOut = clamp(game.bannerTimer / 0.5, 0, 1);
     ctx.globalAlpha = Math.min(fadeIn, fadeOut);
-    hudText(ctx, game.bannerText, CANVAS_W / 2, CANVAS_H / 2 - 90, 16, game.bannerColor, "center");
+    const y = CANVAS_H / 2 - 96;
+    hudText(ctx, game.bannerText, CANVAS_W / 2, y, 18, game.bannerColor, "center", game.bannerColor);
+    // Gilded flourish underneath: a line fading out to each side, a star in the middle.
+    const half = Math.min(260, textWidth(ctx, game.bannerText, 18) / 2 + 40);
+    const ly = y + fontPx(18) + 8;
+    const lg = ctx.createLinearGradient(CANVAS_W / 2 - half, 0, CANVAS_W / 2 + half, 0);
+    lg.addColorStop(0, "rgba(240, 207, 126, 0)");
+    lg.addColorStop(0.5, UI.gold);
+    lg.addColorStop(1, "rgba(240, 207, 126, 0)");
+    ctx.fillStyle = lg;
+    ctx.fillRect(CANVAS_W / 2 - half, ly, half * 2, 1.5);
+    hudStar(ctx, CANVAS_W / 2, ly + 1, 5, UI.goldLight);
     ctx.globalAlpha = 1;
   }
 }

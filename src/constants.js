@@ -165,15 +165,18 @@ const COLORS = {
 // Pixel UI palette, pulled from the sunset island: ink outlines, maroon
 // panels, cream text, sunset reds/oranges, grass greens.
 const UI = {
-  ink: "#1a0a10",
-  panel: "#2a1420",
-  panelLight: "#4a2430",
-  cream: "#ffe9c0",
-  muted: "#b89a8a",
-  gold: "#ffcf5c",
-  font: "'Press Start 2P', monospace",
-  hp:     { fill: "#d83a22", light: "#ff8a4a", dark: "#7a1418" },
-  energy: { fill: "#f0a81e", light: "#ffe07a", dark: "#9a5a10" },
-  xp:     { fill: "#6fae3a", light: "#c8e67a", dark: "#2e5220" },
-  boss:   { fill: "#b82a4a", light: "#ff6a8a", dark: "#5a0a20" },
+  // Angelic HUD: ivory and gold on deep celestial glass.
+  ink: "#0e1230",          // deep celestial navy (troughs, outlines)
+  shadow: "rgba(8, 10, 30, 0.88)",
+  panel: "#1a2048",
+  panelLight: "#2c3468",
+  cream: "#fff6e2",        // ivory text
+  muted: "#b8b4d0",        // lavender grey
+  gold: "#f0cf7e",
+  goldLight: "#fff0c2",
+  font: "'Cinzel', 'Times New Roman', serif",
+  hp:     { fill: "#ff6f8e", light: "#ffd6df", dark: "#8a1e3e" },
+  energy: { fill: "#6fc4ff", light: "#e2f4ff", dark: "#1e4a8a" },
+  xp:     { fill: "#e8b84a", light: "#fff2b8", dark: "#7a5410" },
+  boss:   { fill: "#c8203e", light: "#ff8a9e", dark: "#4a0614" },
 };
