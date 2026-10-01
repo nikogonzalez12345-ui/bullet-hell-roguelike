@@ -939,9 +939,10 @@ class Game {
       this.dropLoot(e, makePotion());
       this.showBanner(`${e.name.toUpperCase()} DEFEATED`, 3, UI.gold);
     } else {
-      if (Math.random() < LOOT.itemDropChance) this.dropLoot(e, makeGear({ level }));
-      if (Math.random() < LOOT.weaponDropChance) this.dropLoot(e, makeWeapon({ level, threat }));
-      if (Math.random() < LOOT.potionDropChance) this.dropLoot(e, makePotion());
+      const lucky = e.elite ? 4 : 1; // elites drop much more often, and better
+      if (Math.random() < LOOT.itemDropChance * lucky) this.dropLoot(e, makeGear({ level, minRarity: e.elite ? 1 : 0 }));
+      if (Math.random() < LOOT.weaponDropChance * lucky) this.dropLoot(e, makeWeapon({ level, threat, minRarity: e.elite ? 1 : 0 }));
+      if (Math.random() < LOOT.potionDropChance * lucky) this.dropLoot(e, makePotion());
     }
   }
 

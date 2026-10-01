@@ -16,6 +16,39 @@ class Director {
     this.encoreIndex = 0;
     INTENSITY.hp = DIRECTOR.hpBase;
     INTENSITY.damage = DIRECTOR.dmgBase;
+    this.basePower = 0;  // player's damage rating at the start of the run
+    this.catchUp = 1;    // adaptive HP multiplier (see DIRECTOR.catchUpExp)
+    this.powerT = 0;
+  }
+
+  // Rough offensive rating: summed weapon DPS, nudged up by wild mods.
+  powerRating() {
+    const p = this.game.player;
+    let dps = 0;
+    for (const w of p.weaponSlots) if (w) dps += weaponDps(w, p);
+    let stacks = 0;
+    for (const k in p.mods) stacks += p.mods[k];
+    return dps * (1 + 0.05 * stacks);
+  }
+
+  // Enemy HP multiplier: a time curve that steepens as the run goes on,
+  // times a catch-up factor when the player is out-scaling it.
+  updateScaling(dt) {
+    const t = this.time;
+    const curve = 1 + t / DIRECTOR.hpLinear + (t / DIRECTOR.hpQuad) ** 2;
+    this.powerT -= dt;
+    if (this.powerT <= 0) {
+      this.powerT = 1;
+      const rating = this.powerRating();
+      if (!this.basePower) this.basePower = rating || 1;
+      const expected = 1 + t / DIRECTOR.powerLinear + (t / DIRECTOR.powerQuad) ** 2;
+      const lead = rating / this.basePower / expected;
+      this.catchUpTarget = clamp(Math.pow(Math.max(lead, 1), DIRECTOR.catchUpExp), 1, DIRECTOR.catchUpMax);
+    }
+    // Ease toward the target slowly: a big upgrade feels great for a while
+    // before the run adapts to it.
+    this.catchUp = lerp(this.catchUp, this.catchUpTarget || 1, 1 - Math.exp(-0.06 * dt)); // ~30s to settle
+    INTENSITY.hp = DIRECTOR.hpBase * curve * this.catchUp;
   }
 
   // Shown on the HUD as THREAT level.
@@ -26,7 +59,7 @@ class Director {
   update(dt) {
     const g = this.game;
     this.time += dt;
-    INTENSITY.hp = DIRECTOR.hpBase + this.time * DIRECTOR.hpPerSec;
+    this.updateScaling(dt);
     INTENSITY.damage = DIRECTOR.dmgBase + this.time * DIRECTOR.dmgPerSec;
 
     const bossAlive = g.enemies.some((e) => e.isBoss);
@@ -106,7 +139,17 @@ class Director {
   }
 
   spawn(type, x, y, hpScale = INTENSITY.hp) {
-    this.game.enemies.push(new Enemy(type, x, y, hpScale));
+    const e = new Enemy(type, x, y, hpScale);
+    if (!e.isBoss && Math.random() < this.eliteChance()) e.makeElite();
+    this.game.enemies.push(e);
+    return e;
+  }
+
+  eliteChance() {
+    const t = this.time - DIRECTOR.eliteFrom;
+    if (t < 0) return 0;
+    const [lo, hi] = DIRECTOR.eliteChance;
+    return Math.min(hi, lo + (hi - lo) * t / 600);
   }
 
   swarm() {

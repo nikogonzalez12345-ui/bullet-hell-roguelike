@@ -93,14 +93,24 @@ const ENEMY_BULLET = {
 // The run's internal clock drives difficulty instead of waves.
 const DIRECTOR = {
   baseSpawnRate: 0.8,      // enemies/sec at 0:00
-  spawnRateGrowth: 0.0175, // + enemies/sec per second survived
+  spawnRateGrowth: 0.019,  // + enemies/sec per second survived
   baseCap: 34,             // max enemies alive at 0:00…
   capGrowth: 1 / 4.8,      // …+1 per 4.8s
   maxCap: 145,
-  hpBase: 1.1,             // enemy HP multiplier at 0:00…
-  hpPerSec: 1 / 135,       // …growing this much per second
+  hpBase: 1.1,             // enemy HP multiplier at 0:00, growing as
+  hpLinear: 110,           //   1 + t/hpLinear + (t/hpQuad)^2 (seconds)
+  hpQuad: 320,
+  // Adaptive scaling: if the player's damage output outgrows the expected
+  // curve (1 + t/powerLinear + (t/powerQuad)^2), enemy HP absorbs part of
+  // the lead: x (lead ^ catchUpExp), capped at catchUpMax.
+  powerLinear: 40,
+  powerQuad: 140,
+  catchUpExp: 0.6,
+  catchUpMax: 5,
+  eliteFrom: 120,          // elites (gold, ~3x HP, better drops) appear after this…
+  eliteChance: [0.02, 0.12], // …at this chance, ramping to the max over ~10 min
   dmgBase: 1.06,           // enemy damage multiplier at 0:00…
-  dmgPerSec: 1 / 335,
+  dmgPerSec: 1 / 250,
   bossEvery: 180,          // seconds between returning bosses in the last stage
   stageBossAt: 150,        // each stage's boss arrives this long into the stage
   swarmEvery: 60,

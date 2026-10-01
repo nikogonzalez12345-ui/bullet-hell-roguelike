@@ -652,6 +652,18 @@ class Enemy {
     this.slamming = false;
   }
 
+  // Elite: a tougher, bigger, gold-rimmed variant with better rewards.
+  makeElite() {
+    this.elite = true;
+    this.hp = this.maxHp = Math.round(this.hp * 3);
+    this.radius *= 1.2;
+    this.speed *= 1.12;
+    this.contactDamage *= 1.4;
+    this.xp *= 4;
+    this.score *= 3;
+    this.color = "#ffd23b";
+  }
+
   jump(velocity, boost = 1) {
     if (this.h > 0 || this.frozenT > 0) return;
     this.vh = velocity;

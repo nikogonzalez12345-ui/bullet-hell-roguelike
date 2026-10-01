@@ -306,6 +306,7 @@ class Renderer3D {
     let model = this.models.get(entity);
     if (!model) {
       model = createModel(type);
+      if (entity.elite) model.root.scale.multiplyScalar(1.3);
       if (type !== "player") {
         // Subtle rim glow in the enemy's colour, and they cut through fog
         // more than scenery does, so they read against any biome.
@@ -367,6 +368,7 @@ class Renderer3D {
       // Hit flash wins; otherwise tint by the strongest status (frozen, burning…).
       if (e.hitFlash > 0) model.flash(0.85, "#ffffff");
       else if (e.tint) model.flash(e.tint[1], e.tint[0]);
+      else if (e.elite) model.flash(0.28 + 0.14 * Math.sin(this.world.time * 5 + e.id), "#ffc83a"); // pulsing gold
       else model.flash(0);
       this.addShadow(e.x, e.y, e.radius * WORLD_SCALE * 1.3 * (1 - Math.min(e.h, 2) * 0.25));
     }
