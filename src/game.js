@@ -226,13 +226,11 @@ class Game {
     p.update(dt, { ...input, yaw: this.yaw });
     if (p.justRolled) {
       p.justRolled = false;
-      const back = Math.atan2(-p.rollDirY, -p.rollDirX);
-      for (let i = 0; i < 10; i++) {
-        this.particles.push(new Particle(p.x, p.y, i % 2 ? "#b8a07a" : "#8a7a5a", {
-          angle: back + rand(-0.9, 0.9), speed: rand(40, 110), h: 0.15, vh: rand(0.5, 1.6),
-          life: rand(0.3, 0.55), size: rand(2, 3.5),
-        }));
-      }
+      this.dust(p.x, p.y, 10, Math.atan2(-p.rollDirY, -p.rollDirX), 0.9);
+    }
+    if (p.justJumped || p.justLanded) {
+      this.dust(p.x, p.y, p.justLanded ? 12 : 6, 0, Math.PI);
+      p.justJumped = p.justLanded = false;
     }
     this.updateAim(dt);
     this.reactionBudget = 40; // caps reaction chains per frame
@@ -322,7 +320,7 @@ class Game {
       }
       if (b.lob && b.age < b.maxLife * 0.75) continue; // still airborne
       for (const e of this.enemies) {
-        if (!e.alive || b.hitIds.has(e.id) || !circleHit(b.x, b.y, b.radius, e.x, e.y, e.radius)) continue;
+        if (!e.alive || e.overBullets || b.hitIds.has(e.id) || !circleHit(b.x, b.y, b.radius, e.x, e.y, e.radius)) continue;
         b.hitIds.add(e.id);
         this.damageEnemy(e, b.damage, b.element, b);
         this.spawnParticles(b.x, b.y, b.color, 3);
@@ -350,15 +348,19 @@ class Game {
       }
     }
 
-    for (const b of this.bullets) {
-      if (b.owner !== "enemy" || b.dead) continue;
-      if (!circleHit(b.x, b.y, b.radius, p.x, p.y, p.radius)) continue;
-      if (p.takeDamage(b.damage)) this.onPlayerHit();
-      b.dead = true; // a roll's i-frames still eat the bullet harmlessly
+    // Jumping clears bullets: they fly underneath you near the apex.
+    if (!p.overBullets) {
+      for (const b of this.bullets) {
+        if (b.owner !== "enemy" || b.dead) continue;
+        if (!circleHit(b.x, b.y, b.radius, p.x, p.y, p.radius)) continue;
+        if (p.takeDamage(b.damage)) this.onPlayerHit();
+        b.dead = true; // a roll's i-frames still eat the bullet harmlessly
+      }
     }
 
     for (const e of this.enemies) {
-      if (e.alive && circleHit(p.x, p.y, p.radius, e.x, e.y, e.radius)) {
+      if (!e.alive || p.overBullets || e.overBullets) continue;
+      if (circleHit(p.x, p.y, p.radius, e.x, e.y, e.radius)) {
         if (p.takeDamage(e.contactDamage * INTENSITY.damage)) this.onPlayerHit();
       }
     }
@@ -694,6 +696,16 @@ class Game {
     this.state = STATE.GAMEOVER;
     this.unlockPointer();
     this.ui.showGameOver(this);
+  }
+
+  // Puff of ground dust in a cone around `angle` (spread = half-angle).
+  dust(x, y, count, angle, spread) {
+    for (let i = 0; i < count; i++) {
+      this.particles.push(new Particle(x, y, i % 2 ? "#b8a07a" : "#8a7a5a", {
+        angle: angle + rand(-spread, spread), speed: rand(40, 110), h: 0.15, vh: rand(0.5, 1.6),
+        life: rand(0.3, 0.55), size: rand(2, 3.5),
+      }));
+    }
   }
 
   spawnParticles(x, y, color, count) {

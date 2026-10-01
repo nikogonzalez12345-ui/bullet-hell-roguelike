@@ -43,7 +43,9 @@
     up: false, down: false, left: false, right: false,
     mouseDown: false,
     fireQueued: false, // latched on press so even a very quick click fires once
-    dashPressed: false,
+    sprint: false,     // held
+    jumpPressed: false, // edge-triggered: latched on press, cleared when the game reads it
+    rollPressed: false,
   };
 
   // ---- Pointer lock: mouse-look needs it; losing it (Esc) pauses. --------
@@ -87,8 +89,10 @@
   window.addEventListener("keydown", (e) => {
     const dir = KEY_MAP[e.code];
     if (dir) { input[dir] = true; e.preventDefault(); }
-    if (e.code === "Space") { input.dashPressed = true; e.preventDefault(); }
+    if (e.code === "ShiftLeft" || e.code === "ShiftRight") input.sprint = true;
+    if (e.code === "Space") e.preventDefault();
     if (e.repeat) return;
+    if (e.code === "Space") input.jumpPressed = true;
     if (e.code === "Tab" || e.code === "KeyI") {
       e.preventDefault();
       if (game.state === STATE.INVENTORY) game.closeInventory(true);
@@ -102,10 +106,10 @@
   window.addEventListener("keyup", (e) => {
     const dir = KEY_MAP[e.code];
     if (dir) { input[dir] = false; e.preventDefault(); }
-    if (e.code === "Space") input.dashPressed = false;
+    if (e.code === "ShiftLeft" || e.code === "ShiftRight") input.sprint = false;
   });
   window.addEventListener("blur", () => {
-    input.up = input.down = input.left = input.right = input.mouseDown = false;
+    input.up = input.down = input.left = input.right = input.mouseDown = input.sprint = false;
   });
 
   // ---- Mouse buttons ---------------------------------------------------------
@@ -120,28 +124,23 @@
       input.mouseDown = true;
       input.fireQueued = true;
     }
-    if (e.button === 2) input.dashPressed = true;
+    if (e.button === 2) input.rollPressed = true;
   });
   window.addEventListener("mouseup", (e) => {
     if (e.button === 0) input.mouseDown = false;
-    if (e.button === 2) input.dashPressed = false;
   });
   app.addEventListener("contextmenu", (e) => e.preventDefault());
-
-  // Roll is edge-triggered: consume the press so holding space doesn't chain-roll.
-  function consumeDashPress() {
-    const pressed = input.dashPressed;
-    input.dashPressed = false;
-    return pressed;
-  }
 
   let last = performance.now();
   function loop(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     const firing = input.mouseDown || input.fireQueued || game.autoFire;
-    input.fireQueued = false;
-    game.update(dt, { ...input, mouseDown: firing, dashPressed: consumeDashPress() });
+    const frameInput = { ...input, mouseDown: firing };
+    // One-shot presses are consumed by exactly one frame (holding Space
+    // doesn't bunny-hop, a quick tap is never missed).
+    input.fireQueued = input.jumpPressed = input.rollPressed = false;
+    game.update(dt, frameInput);
     game.render(dt);
     requestAnimationFrame(loop);
   }

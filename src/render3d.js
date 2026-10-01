@@ -295,9 +295,10 @@ class Renderer3D {
     if (p.alive && game.state !== STATE.MENU) {
       const model = this.modelFor(p, "player");
       model.root.position.copy(toWorld(p.x, p.y));
+      model.root.position.y += p.h;
       const rolling = p.isRolling;
       turnModel(model, facingToYaw(rolling ? Math.atan2(p.rollDirY, p.rollDirX) : p.aimAngle), 22, dt);
-      model.update(dt, { moving: p.moving, rollProgress: p.rollProgress });
+      model.update(dt, { moving: p.moving, rollProgress: p.rollProgress, airborne: p.h > 0, sprinting: p.sprinting });
       model.setBackpackSize(p.backpackSlots);
       // Rebuild armor + weapon visuals whenever the loadout changes.
       if (model.gearVersion !== p.gearVersion) {
@@ -314,20 +315,21 @@ class Renderer3D {
       } else {
         model.flash(0);
       }
-      this.addShadow(p.x, p.y, 0.55);
+      this.addShadow(p.x, p.y, 0.55 * (1 - Math.min(p.h, 2) * 0.25));
     }
 
     for (const e of game.enemies) {
       if (!e.alive) continue;
       const model = this.modelFor(e, e.type);
       model.root.position.copy(toWorld(e.x, e.y));
+      model.root.position.y += e.h;
       turnModel(model, facingToYaw(angleTo(e.x, e.y, p.x, p.y)), 8, dt);
-      model.update(dt, { moving: e.slowMul > 0 });
+      model.update(dt, { moving: e.slowMul > 0, airborne: e.h > 0 });
       // Hit flash wins; otherwise tint by the strongest status (frozen, burning…).
       if (e.hitFlash > 0) model.flash(0.85, "#ffffff");
       else if (e.tint) model.flash(e.tint[1], e.tint[0]);
       else model.flash(0);
-      this.addShadow(e.x, e.y, e.radius * WORLD_SCALE * 1.3);
+      this.addShadow(e.x, e.y, e.radius * WORLD_SCALE * 1.3 * (1 - Math.min(e.h, 2) * 0.25));
     }
 
     for (const [entity, model] of this.models) {

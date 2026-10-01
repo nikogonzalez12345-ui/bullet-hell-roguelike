@@ -82,6 +82,16 @@ const PATTERNS = {
     }
   },
 
+  // Oni landing shockwave: a tight, fast ring at chest height — jump it.
+  oniSlam(enemy, player, bullets) {
+    const count = 28;
+    const offset = rand(0, Math.PI * 2);
+    for (let i = 0; i < count; i++) {
+      const angle = offset + (i / count) * Math.PI * 2;
+      spawnEnemyBullet(bullets, enemy.x, enemy.y, angle, { speed: 230, color: "#ffb03a", radius: 6 });
+    }
+  },
+
   // Boss 2 — Kitsune Spirit: fox-fire volleys that gently home in on the
   // player, interleaved with a wide illusion ring.
   kitsunePattern(enemy, player, bullets) {

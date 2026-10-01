@@ -59,12 +59,22 @@ const PLAYER = {
   rollCooldown: 1.1,     // seconds
   rollIframes: 0.26,     // seconds of invulnerability after roll starts
   accel: 22,             // how quickly movement reaches full speed (1/sec)
+  sprintMul: 1.45,       // hold Shift
   hitIframes: 0.5,       // brief invulnerability after taking damage
   pickupRadius: 80,      // XP gems start flying to you inside this range
   regenPerSec: 0,
   backpackSlots: 6,
   maxBackpackSlots: 30,
   maxPotions: 3,         // potions live on their own belt, not in the backpack
+};
+
+// Jumping (player and enemies), in world units. Anything whose feet are above
+// `clear` is over the bullets (which fly at BULLET_HEIGHT) — shots and body
+// contact pass underneath.
+const JUMP = {
+  velocity: 8,
+  gravity: 24,     // apex ~1.33, airtime ~0.67s
+  clear: 0.55,
 };
 
 const ENEMY_BULLET = {
@@ -75,15 +85,15 @@ const ENEMY_BULLET = {
 
 // The run's internal clock drives difficulty instead of waves.
 const DIRECTOR = {
-  baseSpawnRate: 0.65,     // enemies/sec at 0:00
-  spawnRateGrowth: 0.014,  // + enemies/sec per second survived
+  baseSpawnRate: 0.62,     // enemies/sec at 0:00
+  spawnRateGrowth: 0.0135, // + enemies/sec per second survived
   baseCap: 28,             // max enemies alive at 0:00…
   capGrowth: 1 / 6,        // …+1 per 6s
   maxCap: 120,
-  hpBase: 1.15,            // enemy HP multiplier at 0:00…
-  hpPerSec: 1 / 130,       // …growing this much per second
-  dmgBase: 1.1,            // enemy damage multiplier at 0:00…
-  dmgPerSec: 1 / 320,
+  hpBase: 1.1,             // enemy HP multiplier at 0:00…
+  hpPerSec: 1 / 135,       // …growing this much per second
+  dmgBase: 1.06,           // enemy damage multiplier at 0:00…
+  dmgPerSec: 1 / 335,
   bossEvery: 180,          // seconds
   swarmEvery: 60,
   firstSwarm: 40,

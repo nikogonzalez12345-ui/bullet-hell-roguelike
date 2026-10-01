@@ -53,7 +53,12 @@ class Player {
     this.rollDuration = PLAYER.rollDuration;
     this.vx = 0;
     this.vy = 0;
+    this.h = 0;   // jump height (world units)
+    this.vh = 0;
+    this.sprinting = false;
     this.justRolled = false;
+    this.justJumped = false;
+    this.justLanded = false;
 
     // Weapons: slot 0 in hand, 1-3 floating. Starts with a plain pistol.
     this.weaponSlots = new Array(WEAPON_SLOTS).fill(null);
@@ -306,21 +311,42 @@ class Player {
       this.rollTimer -= dt;
     } else {
       // Short acceleration ramp: responsive, but no instant start/stop.
+      this.sprinting = !!input.sprint && wantsMove;
+      const top = this.speed * (this.sprinting ? PLAYER.sprintMul : 1);
       const k = 1 - Math.exp(-PLAYER.accel * dt);
-      this.vx = lerp(this.vx, wantsMove ? mx * this.speed : 0, k);
-      this.vy = lerp(this.vy, wantsMove ? my * this.speed : 0, k);
-      if (input.dashPressed && this.rollReady) {
+      this.vx = lerp(this.vx, wantsMove ? mx * top : 0, k);
+      this.vy = lerp(this.vy, wantsMove ? my * top : 0, k);
+      if (input.rollPressed && this.rollReady && this.h === 0) {
         const dx = wantsMove ? mx : Math.cos(this.facing);
         const dy = wantsMove ? my : Math.sin(this.facing);
         this.startRoll(dx, dy);
+      } else if (input.jumpPressed && this.h === 0) {
+        this.vh = JUMP.velocity;
+        this.justJumped = true;
       }
     }
     this.x += this.vx * dt;
     this.y += this.vy * dt;
     this.moving = Math.hypot(this.vx, this.vy) > this.speed * 0.15;
+    this.updateJump(dt);
 
     confineToArena(this);
   }
+
+  // Height above the ground (world units). Up near the apex you're over the
+  // bullets — see JUMP.clear.
+  updateJump(dt) {
+    if (this.h <= 0 && this.vh <= 0) return;
+    this.vh -= JUMP.gravity * dt;
+    this.h += this.vh * dt;
+    if (this.h <= 0) {
+      this.h = 0;
+      this.vh = 0;
+      this.justLanded = true;
+    }
+  }
+
+  get overBullets() { return this.h > JUMP.clear; }
 }
 
 // ---------------------------------------------------------------------------
@@ -484,6 +510,39 @@ class Enemy {
     this.curse = 0;
     this.slowMul = 1;
     this.tint = null;
+    // Jumping: height/velocity in world units, like the player.
+    this.h = 0;
+    this.vh = 0;
+    this.airBoost = 1; // ground-speed multiplier while airborne (pounces)
+    this.jumpCd = rand(1.5, 3.5);
+    this.dodgeScan = rand(0, 0.25);
+    this.slamming = false;
+  }
+
+  jump(velocity, boost = 1) {
+    if (this.h > 0 || this.frozenT > 0) return;
+    this.vh = velocity;
+    this.airBoost = boost;
+  }
+
+  get overBullets() { return this.h > JUMP.clear; }
+
+  // Shooters/snipers sometimes hop over a player shot that's about to hit.
+  tryDodge(dt, bullets) {
+    this.dodgeScan -= dt;
+    if (this.dodgeScan > 0 || this.jumpCd > 0) return;
+    this.dodgeScan = 0.25;
+    for (const b of bullets) {
+      if (b.owner !== "player" || b.dead) continue;
+      const dx = this.x - b.x, dy = this.y - b.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 110 || d < 1) continue;
+      const sp = Math.hypot(b.vx, b.vy) || 1;
+      if ((b.vx * dx + b.vy * dy) / (sp * d) < 0.9) continue; // not heading at us
+      this.jumpCd = rand(2, 4);
+      if (Math.random() < 0.35) this.jump(JUMP.velocity);
+      return;
+    }
   }
 
   fire(player, bullets, dt) {
@@ -501,15 +560,23 @@ class Enemy {
 
     const d = dist(this.x, this.y, player.x, player.y);
     const toPlayer = angleTo(this.x, this.y, player.x, player.y);
-    const spd = this.speed * this.slowMul; // chill/slime slow, freeze stops
+    if (this.jumpCd > 0) this.jumpCd -= dt;
+    // chill/slime slow, freeze stops; pounces carry extra ground speed
+    const spd = this.speed * this.slowMul * (this.h > 0 ? this.airBoost : 1);
 
     switch (this.def.behavior) {
       case "chase": {
+        // Grunts pounce when they get close.
+        if (d < 170 && this.jumpCd <= 0) {
+          this.jumpCd = rand(2.5, 4.5);
+          this.jump(7.5, 2.1);
+        }
         this.x += Math.cos(toPlayer) * spd * dt;
         this.y += Math.sin(toPlayer) * spd * dt;
         break;
       }
       case "keepDistance": {
+        this.tryDodge(dt, bullets);
         const range = this.def.preferredRange;
         let move = toPlayer;
         if (d < range - 20) move += Math.PI;
@@ -537,15 +604,35 @@ class Enemy {
         break;
       }
       case "boss": {
+        // Oni Brute leaps at you and slams down (shockwave on landing).
+        if (this.type === "boss_oni" && this.jumpCd <= 0 && d < 600) {
+          this.jumpCd = 6;
+          this.jump(10, 2.6);
+          this.slamming = true;
+        }
         const range = this.def.preferredRange;
         let move = toPlayer + Math.PI / 2; // strafe
-        if (d > range + 40) move = toPlayer;
+        if (d > range + 40 || this.slamming) move = toPlayer;
         else if (d < range - 40) move = toPlayer + Math.PI;
         const sp = d > 700 ? spd * 2.5 : spd;
         this.x += Math.cos(move) * sp * dt;
         this.y += Math.sin(move) * sp * dt;
         if (d < 800) this.fire(player, bullets, dt);
         break;
+      }
+    }
+
+    // Vertical motion.
+    if (this.h > 0 || this.vh > 0) {
+      this.vh -= JUMP.gravity * dt;
+      this.h += this.vh * dt;
+      if (this.h <= 0) {
+        this.h = 0;
+        this.vh = 0;
+        if (this.slamming) {
+          this.slamming = false;
+          firePattern("oniSlam", this, player, bullets);
+        }
       }
     }
 

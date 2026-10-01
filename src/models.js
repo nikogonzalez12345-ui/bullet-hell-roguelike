@@ -195,22 +195,25 @@ class CharacterModel {
     this.backpack.position.z = -0.26 - (k - 1) * 0.16;
   }
 
-  // state: { moving, rollProgress (0 = not rolling, 0..1 during a roll) }
+  // state: { moving, sprinting, airborne, rollProgress (0 = not rolling, 0..1 during a roll) }
   update(dt, state) {
     this.time += dt;
     const t = this.time;
     const s = this.spec;
 
     // Walk amount blends in/out, and the stride phase only advances while
-    // walking, so starting/stopping never pops the legs.
-    this.walkAmt = lerp(this.walkAmt || 0, state.moving ? 1 : 0, 1 - Math.exp(-10 * dt));
-    this.phase = (this.phase || 0) + dt * 11 * this.walkAmt;
+    // walking, so starting/stopping never pops the legs. Sprinting = faster,
+    // longer strides; in the air the legs stop cycling.
+    const striding = state.moving && !state.airborne;
+    this.walkAmt = lerp(this.walkAmt || 0, striding ? (state.sprinting ? 1.3 : 1) : 0, 1 - Math.exp(-10 * dt));
+    this.phase = (this.phase || 0) + dt * (state.sprinting ? 15 : 11) * Math.min(1, this.walkAmt);
     const walk = Math.sin(this.phase) * this.walkAmt;
 
     // Roll: a tucked forward somersault, eased so it spins fastest mid-roll.
+    // A jump tucks the knees part-way.
     const u = state.rollProgress || 0;
     const rolling = u > 0;
-    const tuck = rolling ? Math.sin(Math.PI * u) : 0;
+    const tuck = rolling ? Math.sin(Math.PI * u) : state.airborne ? 0.5 : 0;
     this.tuckAmt = lerp(this.tuckAmt || 0, tuck, rolling ? 1 : 1 - Math.exp(-18 * dt));
     const k = this.tuckAmt;
 
