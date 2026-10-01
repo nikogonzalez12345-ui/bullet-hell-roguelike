@@ -6,8 +6,8 @@
 <title>Slop Master — Bullet Hell Roguelike</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="src/style.css?v=2026.10.01-18">
+<link href="https://fonts.googleapis.com/css2?family=Jacquarda+Bastarda+9&family=Pixelify+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="src/style.css?v=2026.10.01-25">
 </head>
 <body>
   <div id="app">
@@ -15,22 +15,11 @@
     <canvas id="overlay"></canvas>
 
     <div id="mainMenu" class="screen">
-      <svg width="0" height="0" style="position:absolute">
-        <defs>
-          <linearGradient id="featherFill" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#fffdf4"/><stop offset="0.6" stop-color="#f6ead0"/><stop offset="1" stop-color="#e8c878"/>
-          </linearGradient>
-          <symbol id="wing" viewBox="0 0 120 90">
-            <path fill="url(#featherFill)" stroke="#c9a050" stroke-width="1.2" d="M118 38 C90 10 40 2 4 8 C20 16 26 20 30 24 C18 26 12 30 8 34 C26 36 34 38 40 40 C28 44 22 50 20 56 C40 54 50 52 58 52 C50 58 46 64 46 70 C62 64 72 60 80 58 C78 64 78 70 80 76 C92 66 104 58 118 52 Z"/>
-            <path fill="none" stroke="#d8b46a" stroke-width="1" opacity="0.7" d="M114 40 C90 22 56 14 22 14 M112 44 C86 34 60 30 30 30 M110 48 C90 44 68 44 44 46 M108 52 C94 54 80 58 66 64"/>
-          </symbol>
-        </defs>
-      </svg>
       <div class="halo"></div>
       <div class="winged">
-        <svg class="left"><use href="#wing"/></svg>
-        <h1 class="title">SLOP<br>MASTER</h1>
-        <svg class="right"><use href="#wing"/></svg>
+        <div class="wing"></div>
+        <h1 class="title">Slop<br>Master</h1>
+        <div class="wing right"></div>
       </div>
       <p class="tag">A BULLET HELL ROGUELIKE</p>
       <div class="menu">
@@ -61,7 +50,7 @@
     </div>
 
     <div id="pauseMenu" class="screen dim hidden">
-      <h2>PAUSED</h2>
+      <h2>Paused</h2>
       <div class="menu">
         <button data-action="resume">RESUME</button>
         <button data-action="settings" class="alt">SETTINGS</button>
@@ -72,7 +61,7 @@
     </div>
 
     <div id="settingsScreen" class="screen dim hidden">
-      <h2>SETTINGS</h2>
+      <h2>Settings</h2>
       <div id="settingsPanel" class="panel settings"></div>
       <div class="menu">
         <button data-action="back">BACK</button>
@@ -80,7 +69,7 @@
     </div>
 
     <div id="armoryScreen" class="screen dim hidden">
-      <h2 class="gold">ARMORY</h2>
+      <h2 class="gold">Armory</h2>
       <p class="tag" id="shardCount"></p>
       <div id="perkList" class="perks"></div>
       <div class="menu">
@@ -89,7 +78,7 @@
     </div>
 
     <div id="levelUpScreen" class="screen dim hidden">
-      <h2 class="gold">LEVEL UP!</h2>
+      <h2 class="gold">Choose a Blessing</h2>
       <p class="tag" id="levelUpSub"></p>
       <div id="upgradeCards"></div>
     </div>
@@ -97,7 +86,7 @@
     <div id="inventoryScreen" class="screen dim hidden">
       <div class="panel inv">
         <div class="inv-head">
-          <h2>GEAR</h2>
+          <h2>Reliquary</h2>
           <button data-action="closeInv" class="small alt">CLOSE [TAB]</button>
         </div>
         <div class="inv-body">
@@ -123,7 +112,7 @@
     </div>
 
     <div id="gameOverScreen" class="screen dim hidden">
-      <h1 class="title red">YOU DIED</h1>
+      <h1 class="title red">You Died</h1>
       <div id="finalStats" class="panel keys"></div>
       <p id="shardGain" class="shard-gain"></p>
       <div class="menu">
@@ -134,24 +123,26 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="src/constants.js?v=2026.10.01-18"></script>
-  <script src="src/utils.js?v=2026.10.01-18"></script>
-  <script src="src/ps1.js?v=2026.10.01-18"></script>
-  <script src="src/world.js?v=2026.10.01-18"></script>
-  <script src="src/elements.js?v=2026.10.01-18"></script>
-  <script src="src/models.js?v=2026.10.01-18"></script>
-  <script src="src/items.js?v=2026.10.01-18"></script>
-  <script src="src/weapons.js?v=2026.10.01-18"></script>
-  <script src="src/entities.js?v=2026.10.01-18"></script>
-  <script src="src/patterns.js?v=2026.10.01-18"></script>
-  <script src="src/director.js?v=2026.10.01-18"></script>
-  <script src="src/upgrades.js?v=2026.10.01-18"></script>
-  <script src="src/settings.js?v=2026.10.01-18"></script>
-  <script src="src/audio.js?v=2026.10.01-18"></script>
-  <script src="src/render3d.js?v=2026.10.01-18"></script>
-  <script src="src/hud.js?v=2026.10.01-18"></script>
-  <script src="src/ui.js?v=2026.10.01-18"></script>
-  <script src="src/game.js?v=2026.10.01-18"></script>
-  <script src="src/main.js?v=2026.10.01-18"></script>
+  <script src="src/constants.js?v=2026.10.01-25"></script>
+  <script src="src/utils.js?v=2026.10.01-25"></script>
+  <script src="src/ps1.js?v=2026.10.01-25"></script>
+  <script src="src/world.js?v=2026.10.01-25"></script>
+  <script src="src/elements.js?v=2026.10.01-25"></script>
+  <script src="src/models.js?v=2026.10.01-25"></script>
+  <script src="src/pixelart.js?v=2026.10.01-25"></script>
+  <script src="src/icons.js?v=2026.10.01-25"></script>
+  <script src="src/items.js?v=2026.10.01-25"></script>
+  <script src="src/weapons.js?v=2026.10.01-25"></script>
+  <script src="src/entities.js?v=2026.10.01-25"></script>
+  <script src="src/patterns.js?v=2026.10.01-25"></script>
+  <script src="src/director.js?v=2026.10.01-25"></script>
+  <script src="src/upgrades.js?v=2026.10.01-25"></script>
+  <script src="src/settings.js?v=2026.10.01-25"></script>
+  <script src="src/audio.js?v=2026.10.01-25"></script>
+  <script src="src/render3d.js?v=2026.10.01-25"></script>
+  <script src="src/hud.js?v=2026.10.01-25"></script>
+  <script src="src/ui.js?v=2026.10.01-25"></script>
+  <script src="src/game.js?v=2026.10.01-25"></script>
+  <script src="src/main.js?v=2026.10.01-25"></script>
 </body>
 </html>

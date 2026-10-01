@@ -14,6 +14,11 @@ const STAT_ROWS = [
   ["PICKUP", (p) => Math.round(p.pickupRadius)],
 ];
 
+// Pick out the numbers in a description ("+18%", "4x", "+1") in gold.
+function richText(s) {
+  return s.replace(/([+\-]?\d+(?:\.\d+)?(?:%|x)?)/g, '<em class="kw">$1</em>');
+}
+
 class GameUI {
   constructor(game) {
     this.game = game;
@@ -72,20 +77,36 @@ class GameUI {
 
   // ---- Level up ------------------------------------------------------------
 
+  // Blessing cards: rarity-framed, a ribbon with the name, the pixel icon in
+  // a diamond emblem, a description with its numbers picked out in gold.
   showLevelUp(picks, level, pending) {
-    this.el.levelUpSub.textContent = pending > 1 ? `LEVEL ${level} · ${pending} PICKS LEFT` : `LEVEL ${level}`;
+    this.el.levelUpSub.textContent = pending > 1 ? `Level ${level}  ·  ${pending} picks left` : `Level ${level}`;
     this.el.cards.innerHTML = "";
-    for (const u of picks) {
+    picks.forEach((u, i) => {
       const card = document.createElement("button");
-      card.className = `card rarity-${u.rarity}` + (u.weapon ? " weapon-card" : "") + (u.zany ? " zany" : "");
+      const tier = u.zany ? "wild" : u.weapon ? u.weapon.rarity : u.rarity;
+      card.className = `card tier-${tier}` + (u.weapon ? " weapon-card" : "") + (u.zany ? " zany" : "");
+      card.style.animationDelay = `${i * 70}ms`;
+      const icon = u.weapon ? upscale(itemIcon(u.weapon), 3).toDataURL() : iconUrl(u.id);
+      let desc;
+      if (u.weapon) {
+        const b = WEAPON_BASES[u.weapon.base];
+        const el = elementOf(u.weapon.element);
+        const muts = u.weapon.mutations.map((m) => `<div class="card-mut">✦ ${MUTATIONS[m].name}: ${MUTATIONS[m].desc}</div>`).join("");
+        desc = `${WEAPON_CLASSES[b.cls].name} · <span style="color:${el.color}">${el.name}</span>${muts}`;
+      } else {
+        desc = richText(u.desc);
+      }
+      const stacks = u.zany && this.game.player.mods[u.id] ? `  ·  x${this.game.player.mods[u.id] + 1}` : "";
+      const label = u.zany ? "Wild Blessing" : u.weapon ? `${RARITY_BY_ID[u.weapon.rarity].name} Weapon` : `${u.rarity[0].toUpperCase()}${u.rarity.slice(1)} Blessing`;
       card.innerHTML = `
-        <div class="icon" ${u.iconColor ? `style="color:${u.iconColor}"` : ""}>${u.icon}</div>
-        <div class="name">${u.name}</div>
-        <div class="desc">${u.desc}</div>
-        <div class="tag">${u.rarity.toUpperCase()}${u.zany ? " · WILD" : ""}${u.zany && this.game.player.mods[u.id] ? ` · x${this.game.player.mods[u.id] + 1}` : ""}</div>`;
+        <div class="card-ribbon${u.name.length > 22 ? " longer" : u.name.length > 16 ? " long" : ""}"><span>${u.name}</span></div>
+        <div class="card-emblem"><img src="${icon}" alt=""></div>
+        <div class="card-desc"><div>${desc}</div></div>
+        <div class="card-foot">◆ ${label}${stacks} ◆</div>`;
       card.addEventListener("click", () => this.game.chooseUpgrade(u));
       this.el.cards.appendChild(card);
-    }
+    });
     this.show("levelUp");
   }
 
@@ -329,10 +350,11 @@ class GameUI {
       const card = document.createElement("button");
       card.className = "perk" + (maxed ? " maxed" : afford ? " afford" : "");
       const pips = perk.costs.map((_, i) => `<i class="${i < rank ? "on" : ""}"></i>`).join("");
-      card.innerHTML = `<div class="perk-name">${perk.name.toUpperCase()}</div>
+      card.innerHTML = `<img class="perk-icon" src="${iconUrl(PERK_ICONS[perk.id], 2)}" alt="">
+        <div class="perk-name">${perk.name}</div>
         <div class="pips">${pips}</div>
-        <div class="perk-desc">${perk.desc}</div>
-        <div class="perk-cost">${maxed ? "MAXED" : `◆ ${cost}`}</div>`;
+        <div class="perk-desc">${richText(perk.desc)}</div>
+        <div class="perk-cost">${maxed ? "Maxed" : `◆ ${cost}`}</div>`;
       card.addEventListener("click", () => {
         if (buyPerk(perk.id)) {
           SOUND.play("levelup");

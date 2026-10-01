@@ -1,4 +1,5 @@
 (function () {
+  initPixelUI(); // pixel-art frames/ornaments -> CSS custom properties
   const app = document.getElementById("app");
   const view = document.getElementById("view");
   const overlay = document.getElementById("overlay");
