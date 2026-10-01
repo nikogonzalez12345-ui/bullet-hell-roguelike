@@ -11,8 +11,8 @@ class Director {
     this.nextBoss = DIRECTOR.bossEvery;
     this.nextSwarm = DIRECTOR.firstSwarm;
     this.bossIndex = 0;
-    INTENSITY.hp = 1;
-    INTENSITY.damage = 1;
+    INTENSITY.hp = DIRECTOR.hpBase;
+    INTENSITY.damage = DIRECTOR.dmgBase;
   }
 
   // Shown on the HUD as THREAT level.
@@ -23,8 +23,8 @@ class Director {
   update(dt) {
     const g = this.game;
     this.time += dt;
-    INTENSITY.hp = 1 + this.time / 150;
-    INTENSITY.damage = 1 + this.time / 400;
+    INTENSITY.hp = DIRECTOR.hpBase + this.time * DIRECTOR.hpPerSec;
+    INTENSITY.damage = DIRECTOR.dmgBase + this.time * DIRECTOR.dmgPerSec;
 
     const bossAlive = g.enemies.some((e) => e.isBoss);
     let rate = DIRECTOR.baseSpawnRate + DIRECTOR.spawnRateGrowth * this.time;
@@ -97,7 +97,7 @@ class Director {
     const loop = Math.floor(this.bossIndex / BOSS_CYCLE.length);
     this.bossIndex++;
     const p = this.spawnPoint(450, 560);
-    this.spawn(type, p.x, p.y, INTENSITY.hp * 0.6 * (1 + loop * 0.6));
+    this.spawn(type, p.x, p.y, INTENSITY.hp * 0.7 * (1 + loop * 0.6));
   }
 
   // Stragglers that fall too far behind are recycled back into the fight.

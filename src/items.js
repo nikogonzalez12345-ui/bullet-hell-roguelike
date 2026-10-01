@@ -78,8 +78,10 @@ function makeGear({ level = 0, minRarity = 0, element } = {}) {
   };
 }
 
+const POTION_HEAL = 0.35; // fraction of max HP
+
 function makePotion() {
-  return { id: itemIdCounter++, kind: "potion", slot: null, rarity: "common", name: "Health Potion", heal: 0.35, stats: {} };
+  return { id: itemIdCounter++, kind: "potion", slot: null, rarity: "common", name: "Health Potion", stats: {} };
 }
 
 function itemColor(item) {

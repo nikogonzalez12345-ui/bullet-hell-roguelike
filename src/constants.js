@@ -10,9 +10,10 @@ let CANVAS_H = MIN_UI_H;
 let VIEW_TOP = 0;
 let VIEW_H = CANVAS_H;
 
-// Internal 3D render resolution — the PS1 look depends on this being tiny.
-// Height stays ~180 lines; width follows the window's aspect ratio.
-const RENDER_SCALE = 0.3;
+// Internal 3D render resolution: ~420 lines (Tomb Raider-era 640x480 feel)
+// rather than raw-PS1 240, so things stay readable; width follows the
+// window's aspect ratio. The PS1 vertex wobble still snaps to a 320x240 grid.
+const RENDER_SCALE = 0.7;
 let RENDER_W = 320;
 let RENDER_H = 180;
 
@@ -63,6 +64,7 @@ const PLAYER = {
   regenPerSec: 0,
   backpackSlots: 6,
   maxBackpackSlots: 30,
+  maxPotions: 3,         // potions live on their own belt, not in the backpack
 };
 
 const ENEMY_BULLET = {
@@ -73,11 +75,15 @@ const ENEMY_BULLET = {
 
 // The run's internal clock drives difficulty instead of waves.
 const DIRECTOR = {
-  baseSpawnRate: 0.55,     // enemies/sec at 0:00
-  spawnRateGrowth: 0.012,  // + enemies/sec per second survived
-  baseCap: 25,             // max enemies alive at 0:00…
+  baseSpawnRate: 0.65,     // enemies/sec at 0:00
+  spawnRateGrowth: 0.014,  // + enemies/sec per second survived
+  baseCap: 28,             // max enemies alive at 0:00…
   capGrowth: 1 / 6,        // …+1 per 6s
-  maxCap: 110,
+  maxCap: 120,
+  hpBase: 1.15,            // enemy HP multiplier at 0:00…
+  hpPerSec: 1 / 130,       // …growing this much per second
+  dmgBase: 1.1,            // enemy damage multiplier at 0:00…
+  dmgPerSec: 1 / 320,
   bossEvery: 180,          // seconds
   swarmEvery: 60,
   firstSwarm: 40,
@@ -112,9 +118,9 @@ const AIM = {
 };
 
 const LOOT = {
-  itemDropChance: 0.045,
-  weaponDropChance: 0.02,
-  potionDropChance: 0.03,
+  itemDropChance: 0.036,
+  weaponDropChance: 0.016,
+  potionDropChance: 0.008,
   bossItemDrops: 3,
   pickupRange: 36,
 };

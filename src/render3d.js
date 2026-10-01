@@ -97,7 +97,9 @@ class Renderer3D {
     this.renderer.setSize(RENDER_W, RENDER_H, false);
     this.camera.aspect = RENDER_W / RENDER_H;
     this.camera.updateProjectionMatrix();
-    PS1_SNAP.set(RENDER_W / 2, RENDER_H / 2);
+    // Vertex wobble snaps to a 320x240-equivalent grid (real PS1 output),
+    // independent of the higher internal render resolution.
+    PS1_SNAP.set(120 * (RENDER_W / RENDER_H), 120);
   }
 
   buildInstanced() {
@@ -305,9 +307,13 @@ class Renderer3D {
         if (!model.floatGroup.parent) this.scene.add(model.floatGroup);
       }
       model.updateWeapons(model.root.position, model.yaw, p.weaponFx);
-      const blink = p.iframeTimer > 0 && !rolling && Math.floor(p.iframeTimer * 20) % 2 === 0;
-      model.root.visible = !blink;
-      model.floatGroup.visible = !blink;
+      // Taking a hit: pulse red (fast throb that fades out over the i-frames).
+      if (p.hitPulse > 0) {
+        const fade = p.hitPulse / PLAYER.hitIframes;
+        model.flash(fade * (0.45 + 0.4 * Math.abs(Math.sin(this.world.time * 22))), "#ff1e1e");
+      } else {
+        model.flash(0);
+      }
       this.addShadow(p.x, p.y, 0.55);
     }
 

@@ -3,6 +3,7 @@
 // clicks back to the Game.
 
 const STAT_ROWS = [
+  ["POTIONS [Q]", (p) => `${p.potions}/${PLAYER.maxPotions}`],
   ["MAX HP", (p) => p.maxHp],
   ["ARMOR", (p) => `${Math.round(p.armor)} (-${Math.round((1 - 100 / (100 + p.armor)) * 100)}% DMG)`],
   ["DAMAGE", (p) => p.damage.toFixed(1)],
@@ -147,9 +148,7 @@ class GameUI {
         cell.style.setProperty("--rc", itemColor(item));
         cell.appendChild(this.iconEl(item));
         cell.addEventListener("click", () => {
-          if (item.kind === "potion") {
-            if (!p.drinkPotion(i)) this.game.hud.toast("ALREADY AT FULL HP", UI.muted);
-          } else if (p.equipFromBackpack(i) === "slots-full") {
+          if (p.equipFromBackpack(i) === "slots-full") {
             this.game.hud.toast("WEAPON SLOTS FULL - UNEQUIP ONE FIRST", UI.hp.light);
           } else {
             this.game.autoSalvage(); // the swapped-out piece may now be outclassed
@@ -162,7 +161,7 @@ class GameUI {
           this.renderInventory();
         });
         const current = item.kind === "gear" ? p.equipped[item.slot] : null;
-        const action = item.kind === "potion" ? "DRINK" : current ? "SWAP" : "EQUIP";
+        const action = current ? "SWAP" : "EQUIP";
         if (item.kind === "weapon") cell.classList.add("weapon");
         this.bindTooltip(cell, item, current, `CLICK: ${action} · RMB: DROP`);
       }
@@ -172,10 +171,6 @@ class GameUI {
   }
 
   itemHtml(item) {
-    if (item.kind === "potion") {
-      return `<div class="tt-name" style="color:${itemColor(item)}">${item.name.toUpperCase()}</div>
-        <div class="tt-sub">CONSUMABLE</div><div class="tt-stat">RESTORES ${Math.round(item.heal * 100)}% HP</div>`;
-    }
     const r = RARITY_BY_ID[item.rarity];
     const el = elementOf(item.element);
     const elLine = item.element && item.element !== "none"

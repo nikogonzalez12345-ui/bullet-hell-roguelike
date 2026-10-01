@@ -215,7 +215,7 @@ class Hud {
   drawHints(ctx, game) {
     const p = game.player;
     const bag = `${p.backpack.length}/${p.backpackSlots}`;
-    const text = `Q POTION x${p.potionCount}   TAB GEAR   BAG ${bag}`;
+    const text = `Q POTION ${p.potions}/${PLAYER.maxPotions}   TAB GEAR   BAG ${bag}`;
     const w = text.length * 8 + 24;
     const x = CANVAS_W - 12 - w, y = VIEW_TOP + VIEW_H - 60;
     hudPanel(ctx, x, y, w, 27, 0.75);

@@ -44,14 +44,14 @@ html, body {
   overflow: hidden;
 }
 
-/* 3D view renders tiny and is upscaled with nearest-neighbour sampling. */
+/* 3D view renders at ~420 lines and is smoothly upscaled, like a PS1 on a
+   CRT/TV rather than hard pixel art. */
 canvas#view {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
+  image-rendering: auto;
   cursor: none;
 }
 

@@ -178,8 +178,9 @@ class CharacterModel {
     this.weapon = g;
   }
 
+  // Tints the body and any worn armor (weapons keep their own glow).
   flash(amount, color = "#ffffff") {
-    for (const m of this.mats) {
+    for (const m of this.mats.concat(this.gearMats || [])) {
       m.uniforms.flash.value = amount;
       m.uniforms.flashColor.value.set(color);
     }

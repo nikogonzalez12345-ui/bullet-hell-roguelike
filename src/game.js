@@ -195,7 +195,7 @@ class Game {
     if (this.player.drinkPotion()) {
       this.hud.toast("DRANK HEALTH POTION", "#ff8a8a");
       this.spawnParticles(this.player.x, this.player.y, "#ff6a6a", 12);
-    } else if (this.player.potionCount === 0) {
+    } else if (this.player.potions === 0) {
       this.hud.toast("NO POTIONS", UI.muted);
     }
   }
@@ -375,7 +375,8 @@ class Game {
         l.taken = true;
       } else if (this.fullWarnCooldown <= 0) {
         this.fullWarnCooldown = 2.5;
-        this.hud.toast("BACKPACK FULL - PRESS TAB", UI.hp.light);
+        const msg = l.item.kind === "potion" ? `POTION BELT FULL (${PLAYER.maxPotions}/${PLAYER.maxPotions})` : "BACKPACK FULL - PRESS TAB";
+        this.hud.toast(msg, UI.hp.light);
       }
     }
     this.loot = this.loot.filter((l) => !l.taken);
@@ -385,6 +386,11 @@ class Game {
   // is salvaged for XP on the spot instead of taking a slot.
   takeLoot(item) {
     const p = this.player;
+    if (item.kind === "potion") {
+      if (!p.addPotion()) return false;
+      this.hud.toast(`+ HEALTH POTION (${p.potions}/${PLAYER.maxPotions})`, itemColor(item));
+      return true;
+    }
     if (isOutclassed(item, p)) {
       this.salvage(item);
       return true;

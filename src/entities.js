@@ -64,6 +64,8 @@ class Player {
 
     this.backpackSlots = PLAYER.backpackSlots;
     this.backpack = [];
+    this.potions = 0;
+    this.hitPulse = 0; // > 0 right after taking damage: the model pulses red
     this.equipped = Object.fromEntries(EQUIP_SLOTS.map((s) => [s, null]));
     this.affinity = Object.fromEntries(ELEMENT_IDS.map((e) => [e, 0]));
 
@@ -124,6 +126,7 @@ class Player {
     if (this.isInvulnerable || !this.alive) return false;
     this.hp -= amount * (100 / (100 + this.armor));
     this.iframeTimer = PLAYER.hitIframes;
+    this.hitPulse = PLAYER.hitIframes;
     if (this.hp <= 0) {
       this.hp = 0;
       this.alive = false;
@@ -226,17 +229,18 @@ class Player {
     this.backpack.splice(index, 1);
   }
 
-  drinkPotion(index) {
-    const i = index !== undefined ? index : this.backpack.findIndex((it) => it.kind === "potion");
-    const potion = this.backpack[i];
-    if (!potion || potion.kind !== "potion" || this.hp >= this.maxHp) return false;
-    this.hp = Math.min(this.maxHp, this.hp + this.maxHp * potion.heal);
-    this.backpack.splice(i, 1);
+  // Potions sit on a separate belt (max PLAYER.maxPotions), not in the backpack.
+  addPotion() {
+    if (this.potions >= PLAYER.maxPotions) return false;
+    this.potions += 1;
     return true;
   }
 
-  get potionCount() {
-    return this.backpack.filter((it) => it.kind === "potion").length;
+  drinkPotion() {
+    if (this.potions <= 0 || this.hp >= this.maxHp) return false;
+    this.hp = Math.min(this.maxHp, this.hp + this.maxHp * POTION_HEAL);
+    this.potions -= 1;
+    return true;
   }
 
   // ---- Movement ----------------------------------------------------------
@@ -261,6 +265,7 @@ class Player {
     if (!this.alive) return;
 
     if (this.iframeTimer > 0) this.iframeTimer -= dt;
+    if (this.hitPulse > 0) this.hitPulse -= dt;
     if (this.rollCooldownTimer > 0) this.rollCooldownTimer -= dt;
 
     if (this.regenPerSec > 0 && this.hp < this.maxHp) {

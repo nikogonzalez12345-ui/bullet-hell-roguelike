@@ -214,15 +214,23 @@ function ps1Material(opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Procedural textures — painted on tiny canvases, sampled with NearestFilter
-// so every texel stays a crisp square.
+// Procedural textures — painted on small canvases, sampled with NearestFilter
+// (PS1 had no texture filtering). Tiling textures are painted at TEX_DETAIL x
+// their nominal size with proportionally more speckles: same look, finer grain.
 // ---------------------------------------------------------------------------
 
+const TEX_DETAIL = 2;
+let paintDetail = 1; // area multiplier for counts while a texture is being painted
+
 function makeTexture(size, paint, repeat = true) {
+  const detail = repeat ? TEX_DETAIL : 1; // icons/faces/tufts keep exact pixel layouts
+  const real = size * detail;
   const c = document.createElement("canvas");
-  c.width = c.height = size;
+  c.width = c.height = real;
   const ctx = c.getContext("2d");
-  paint(ctx, size);
+  paintDetail = detail * detail;
+  paint(ctx, real);
+  paintDetail = 1;
   const tex = new THREE.CanvasTexture(c);
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestFilter;
@@ -232,6 +240,7 @@ function makeTexture(size, paint, repeat = true) {
 }
 
 function speckle(ctx, size, colors, count, minS = 1, maxS = 2) {
+  count *= paintDetail;
   for (let i = 0; i < count; i++) {
     ctx.fillStyle = colors[Math.floor(Math.random() * colors.length)];
     const s = Math.round(rand(minS, maxS));
@@ -288,7 +297,7 @@ function buildTextures() {
   });
   TEX.water = makeTexture(32, (ctx, s) => {
     ctx.fillStyle = "#12243a"; ctx.fillRect(0, 0, s, s);
-    for (let i = 0; i < 26; i++) {
+    for (let i = 0; i < 26 * paintDetail; i++) {
       ctx.fillStyle = Math.random() < 0.7 ? "#1c3450" : "#a0502a";
       ctx.fillRect(Math.floor(rand(0, s)), Math.floor(rand(0, s)), Math.round(rand(3, 8)), 1);
     }
@@ -302,10 +311,10 @@ function buildTextures() {
     ctx.fillStyle = "#4a3836"; ctx.fillRect(0, 0, s, s);
     speckle(ctx, s, ["#3a2a28", "#5a4442", "#322422", "#624a46"], 240, 1, 3);
     // a few glowing cracks
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 3 * paintDetail; i++) {
       let x = Math.floor(rand(0, s)), y = Math.floor(rand(0, s));
       ctx.fillStyle = Math.random() < 0.5 ? "#ff5a1a" : "#c8300a";
-      for (let k = 0; k < 7; k++) {
+      for (let k = 0; k < 7 * TEX_DETAIL; k++) {
         ctx.fillRect(x, y, 1, 1);
         x = (x + (Math.random() < 0.5 ? 1 : 0) + s) % s;
         y = (y + (Math.random() < 0.5 ? 1 : -1) + s) % s;
